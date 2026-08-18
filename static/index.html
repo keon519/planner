@@ -1,0 +1,973 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<meta name="theme-color" content="#14161F">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<link rel="manifest" href="/static/manifest.json">
+<title>Planner</title>
+<style>
+  :root {
+    --ground:    #14161F;
+    --card:      #1E2230;
+    --card-hi:   #272C3D;
+    --ink:       #E9E7E1;
+    --ink-dim:   #8B90A0;
+    --ink-faint: #565C6E;
+    --line:      #2C3242;
+    --warn:      #E0A458;
+    --alert:     #C2565B;
+    --ok:        #6BB58A;
+    --accent:    #6B7FD7;
+    --r: 14px;
+  }
+  * { margin:0; padding:0; box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+  html, body {
+    background: var(--ground); color: var(--ink);
+    font-family: 'Ubuntu', 'Segoe UI', system-ui, -apple-system, sans-serif;
+    font-size: 17px; overscroll-behavior-y: none;
+  }
+  body { padding-bottom: calc(74px + env(safe-area-inset-bottom)); }
+  .mono { font-family:'Ubuntu Mono','DejaVu Sans Mono',monospace; letter-spacing:.08em; }
+
+  /* ---------------- shell ---------------- */
+  header {
+    position: sticky; top: 0; z-index: 20;
+    background: var(--ground); border-bottom: 1px solid var(--line);
+    padding: calc(14px + env(safe-area-inset-top)) 20px 14px;
+    display: flex; align-items: center; gap: 14px;
+  }
+  header h1 { font-size: 1.25rem; font-weight: 700; letter-spacing:-.01em; flex:1; }
+  .back {
+    background: none; border: none; color: var(--accent);
+    font-size: 1.6rem; line-height: 1; padding: 4px 8px 4px 0; cursor: pointer;
+  }
+  main { padding: 20px; max-width: 720px; margin: 0 auto; }
+  .view { display: none; }
+  .view.on { display: block; }
+
+  nav {
+    position: fixed; bottom: 0; left: 0; right: 0; z-index: 30;
+    display: grid; grid-template-columns: repeat(4, 1fr);
+    background: var(--ground); border-top: 1px solid var(--line);
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+  nav button {
+    background:none; border:none; color: var(--ink-faint);
+    padding: 15px 0 17px; font-size:.78rem; font-weight:500;
+    letter-spacing:.13em; text-transform:uppercase; cursor:pointer;
+    font-family: inherit;
+  }
+  nav button.on { color: var(--accent); }
+
+  /* ---------------- now ---------------- */
+  .now-card {
+    background: var(--card); border-radius: var(--r);
+    border-left: 4px solid var(--accent);
+    padding: 24px 22px; margin-bottom: 18px;
+  }
+  .eyebrow {
+    font-family:'Ubuntu Mono',monospace; font-size:.78rem; letter-spacing:.2em;
+    text-transform:uppercase; color: var(--accent); margin-bottom: 12px;
+  }
+  .now-title { font-size: 1.75rem; font-weight:700; line-height:1.18; text-wrap:balance; }
+  .now-meta {
+    font-family:'Ubuntu Mono',monospace; font-size:.8rem; letter-spacing:.1em;
+    text-transform:uppercase; color: var(--ink-dim); margin-top: 14px; line-height:1.7;
+  }
+  .now-detail {
+    margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--line);
+    color: var(--ink-dim); font-size:.95rem; line-height:1.5; white-space: pre-wrap;
+  }
+  .flag {
+    border-radius: 10px; padding: 12px 15px; margin-bottom: 18px;
+    font-family:'Ubuntu Mono',monospace; font-size:.8rem; letter-spacing:.06em;
+    line-height:1.5;
+  }
+  .flag.tight { background: rgba(224,164,88,.13); color: var(--warn); }
+  .flag.over  { background: rgba(194,86,91,.15);  color: var(--alert); }
+
+  .btn {
+    width:100%; border:none; border-radius: var(--r); cursor:pointer;
+    font-family: inherit; font-size: 1.05rem; font-weight: 600;
+    padding: 19px; background: var(--card-hi); color: var(--ink);
+    transition: transform .08s, filter .15s;
+  }
+  .btn:active { transform: scale(.98); filter: brightness(1.15); }
+  .btn.primary { background: var(--accent); color: #0F1119; font-size:1.15rem; padding: 23px; }
+  .btn.ghost { background: none; border: 1px solid var(--line); color: var(--ink-dim); }
+  .btn.danger { background: none; border: 1px solid var(--alert); color: var(--alert); }
+  .btn-row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 10px; }
+
+  /* ---------------- lists ---------------- */
+  .item {
+    background: var(--card); border-radius: var(--r); padding: 16px 18px;
+    margin-bottom: 10px; cursor: pointer; border-left: 4px solid var(--ink-faint);
+    display:flex; align-items:center; gap:14px;
+  }
+  .item:active { background: var(--card-hi); }
+  .item-main { flex:1; min-width:0; }
+  .item-title { font-weight:600; font-size:1.02rem; line-height:1.3; }
+  .item-sub {
+    font-family:'Ubuntu Mono',monospace; font-size:.74rem; letter-spacing:.1em;
+    text-transform:uppercase; color: var(--ink-faint); margin-top:6px;
+  }
+  .pill {
+    font-family:'Ubuntu Mono',monospace; font-size:.68rem; letter-spacing:.1em;
+    text-transform:uppercase; padding:4px 9px; border-radius:6px; white-space:nowrap;
+  }
+  .pill.warn  { background: rgba(224,164,88,.16); color: var(--warn); }
+  .pill.alert { background: rgba(194,86,91,.18);  color: var(--alert); }
+
+  /* subtask rows */
+  .step { display:flex; align-items:flex-start; gap:14px; padding:15px 4px; border-bottom:1px solid var(--line); }
+  .check {
+    width:26px; height:26px; border-radius:7px; border:2px solid var(--ink-faint);
+    flex:none; margin-top:1px; cursor:pointer; display:grid; place-items:center;
+    font-size:.9rem; color: var(--ground); background:none;
+  }
+  .step.done .check { background: var(--ok); border-color: var(--ok); }
+  .step.done .step-title { color: var(--ink-faint); text-decoration: line-through; }
+  .step.skipped .step-title { color: var(--ink-faint); font-style: italic; }
+  .step-main { flex:1; min-width:0; }
+  .step-title { line-height:1.35; }
+  .step-min {
+    font-family:'Ubuntu Mono',monospace; font-size:.72rem; letter-spacing:.1em;
+    color: var(--ink-faint); margin-top:4px;
+  }
+  .step-del { background:none; border:none; color:var(--ink-faint); font-size:1.3rem; cursor:pointer; padding:0 4px; }
+
+  /* ---------------- forms ---------------- */
+  label {
+    display:block; font-family:'Ubuntu Mono',monospace; font-size:.74rem;
+    letter-spacing:.15em; text-transform:uppercase; color: var(--ink-faint);
+    margin: 20px 0 8px;
+  }
+  input, select, textarea {
+    width:100%; background: var(--card); border:1px solid var(--line);
+    border-radius:10px; color: var(--ink); padding:15px;
+    font-family:inherit; font-size:1rem;
+  }
+  input:focus, select:focus, textarea:focus { outline:2px solid var(--accent); outline-offset:0; border-color:transparent; }
+  textarea { min-height:140px; resize:vertical; line-height:1.6; }
+  .hint { color: var(--ink-faint); font-size:.85rem; margin-top:8px; line-height:1.5; }
+
+  .seg { display:grid; grid-template-columns:repeat(3,1fr); gap:6px; background:var(--card); padding:5px; border-radius:11px; }
+  .seg button {
+    background:none; border:none; color:var(--ink-dim); padding:12px 0; border-radius:8px;
+    font-family:inherit; font-size:.9rem; font-weight:600; cursor:pointer;
+  }
+  .seg button.on { background: var(--card-hi); color: var(--ink); }
+
+  /* weekday chips */
+  .days { display:grid; grid-template-columns:repeat(7,1fr); gap:6px; }
+  .days button {
+    background:var(--card); border:1px solid var(--line); color:var(--ink-dim);
+    border-radius:9px; padding:14px 0; font-family:'Ubuntu Mono',monospace;
+    font-size:.85rem; font-weight:700; cursor:pointer;
+  }
+  .days button.on { background:var(--accent); border-color:var(--accent); color:#0F1119; }
+
+  /* file drop */
+  .drop {
+    border:1.5px dashed var(--line); border-radius:var(--r); padding:30px 20px;
+    text-align:center; color:var(--ink-dim); cursor:pointer; background:var(--card);
+  }
+  .drop:active { background:var(--card-hi); }
+  .drop b { display:block; color:var(--ink); font-size:1.05rem; margin-bottom:6px; }
+
+  /* planning / review banners */
+  .banner {
+    border-radius:11px; padding:16px 18px; margin-bottom:16px; line-height:1.5;
+    font-size:.95rem;
+  }
+  .banner.busy   { background:rgba(107,127,215,.14); color:var(--accent); }
+  .banner.review { background:rgba(224,164,88,.13); color:var(--warn); }
+  .banner.fail   { background:rgba(194,86,91,.15);  color:var(--alert); }
+  .spin {
+    display:inline-block; width:13px; height:13px; margin-right:9px;
+    border:2px solid currentColor; border-right-color:transparent;
+    border-radius:50%; animation:sp .7s linear infinite; vertical-align:-1px;
+  }
+  @keyframes sp { to { transform:rotate(360deg) } }
+
+  /* settings */
+  .sect { margin-bottom: 30px; }
+  .sect > h3 {
+    font-family:'Ubuntu Mono',monospace; font-size:.74rem; letter-spacing:.18em;
+    text-transform:uppercase; color:var(--ink-faint); font-weight:400;
+    margin-bottom:12px;
+  }
+  .row2 { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
+  .swatch { width:1.1em; height:1.1em; border-radius:4px; flex:none; background:var(--c); }
+  .chev { color:var(--ink-faint); font-size:1.3rem; flex:none; }
+  .mini {
+    font-family:'Ubuntu Mono',monospace; font-size:.7rem; letter-spacing:.1em;
+    text-transform:uppercase; color:var(--ink-faint);
+  }
+  .doc {
+    display:flex; align-items:center; gap:10px; padding:11px 0;
+    border-bottom:1px solid var(--line); font-size:.9rem;
+  }
+  .stats { display:grid; grid-template-columns:repeat(3,1fr); gap:10px; margin-bottom:16px; }
+  .stat { background:var(--card); border-radius:11px; padding:14px 12px; text-align:center; }
+  .stat .v { font-size:1.35rem; font-weight:700; }
+  .stat .k {
+    font-family:'Ubuntu Mono',monospace; font-size:.62rem; letter-spacing:.14em;
+    text-transform:uppercase; color:var(--ink-faint); margin-top:5px;
+  }
+  .bar { display:flex; align-items:center; gap:10px; padding:9px 0; font-size:.88rem; }
+  .bar .t { flex:none; width:6.5em; color:var(--ink-dim); }
+  .bar .g { flex:1; height:6px; background:var(--line); border-radius:3px; overflow:hidden; }
+  .bar .g i { display:block; height:100%; background:var(--accent); }
+  .bar .n {
+    flex:none; font-family:'Ubuntu Mono',monospace; font-size:.78rem;
+    color:var(--ink-faint); width:4.6em; text-align:right;
+  }
+  .warnbox {
+    background:rgba(194,86,91,.12); color:var(--alert); border-radius:10px;
+    padding:14px 16px; font-size:.9rem; line-height:1.5; margin-bottom:16px;
+  }
+
+  .empty { text-align:center; color: var(--ink-faint); padding: 56px 20px; line-height:1.6; }
+  .toast {
+    position:fixed; left:50%; bottom: 92px; transform:translateX(-50%) translateY(20px);
+    background: var(--ok); color:#0F1119; padding:13px 24px; border-radius:10px;
+    font-weight:600; opacity:0; pointer-events:none; transition:.25s; z-index:50;
+  }
+  .toast.on { opacity:1; transform:translateX(-50%) translateY(0); }
+  @media (prefers-reduced-motion: reduce) { * { transition:none !important; } }
+</style>
+</head>
+<body>
+
+<header>
+  <button class="back" id="back" hidden>‹</button>
+  <h1 id="title">Now</h1>
+</header>
+
+<main>
+  <section class="view on" id="v-now"></section>
+  <section class="view" id="v-work"></section>
+  <section class="view" id="v-detail"></section>
+  <section class="view" id="v-add"></section>
+  <section class="view" id="v-settings"></section>
+  <section class="view" id="v-editclass"></section>
+  <section class="view" id="v-editassign"></section>
+</main>
+
+<nav>
+  <button class="on" data-go="now">Now</button>
+  <button data-go="work">Work</button>
+  <button data-go="add">Add</button>
+  <button data-go="settings">Settings</button>
+</nav>
+
+<div class="toast" id="toast"></div>
+
+<script>
+const $ = id => document.getElementById(id);
+const api = async (path, opts) => {
+  const r = await fetch(path, {
+    headers: {'Content-Type':'application/json'}, ...opts,
+    body: opts?.body ? JSON.stringify(opts.body) : undefined,
+  });
+  if (!r.ok) throw new Error(await r.text());
+  return r.status === 204 ? null : r.json();
+};
+const esc = s => (s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+
+let state = { view:'now', classes:[], detailId:null, editId:null,
+              addTab:'assignment', backTo:'work' };
+
+function toast(msg) {
+  $('toast').textContent = msg; $('toast').classList.add('on');
+  setTimeout(() => $('toast').classList.remove('on'), 1600);
+}
+
+/* ---------- time helpers: store UTC, show local ---------- */
+function dueText(iso) {
+  if (!iso) return 'No due date';
+  const d = new Date(iso), mins = (d - new Date()) / 60000;
+  if (mins < 0) return 'Overdue';
+  if (mins < 60) return `Due in ${Math.round(mins)} min`;
+  if (mins < 1440) return `Due in ${Math.round(mins/60)} h`;
+  const days = Math.round(mins/1440);
+  if (days === 1) return 'Due tomorrow';
+  if (days < 7) return `Due ${d.toLocaleDateString([], {weekday:'long'})}`;
+  return `Due ${d.toLocaleDateString([], {month:'short', day:'numeric'})}`;
+}
+function hm(m) { return m < 60 ? `${m} min` : `${(m/60) % 1 === 0 ? m/60 : (m/60).toFixed(1)} h`; }
+function toUTC(localValue) { return localValue ? new Date(localValue).toISOString() : null; }
+function toLocalInput(iso) {
+  if (!iso) return '';
+  const d = new Date(iso), p = n => String(n).padStart(2,'0');
+  return `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`;
+}
+
+/* ---------------- NOW ---------------- */
+async function renderNow() {
+  const d = await api('/api/now');
+  const el = $('v-now');
+
+  const planning = d.planning
+    ? `<div class="banner busy"><span class="spin"></span>Claude is planning ${d.planning} assignment${d.planning>1?'s':''}…</div>`
+    : '';
+
+  if (!d.step) {
+    const pend = d.needs_breakdown || [];
+    el.innerHTML = pend.length
+      ? `<div class="empty"><div style="font-size:1.3rem;color:var(--ink-dim);margin-bottom:10px">
+           No steps yet</div>
+           ${pend.length} assignment${pend.length>1?'s':''} need breaking down.</div>
+         ${pend.map(p => `<div class="item" onclick="openDetail(${p.id})">
+            <div class="item-main"><div class="item-title">${esc(p.title)}</div>
+            <div class="item-sub">${esc(p.class_code||'')} · ${dueText(p.due_at)}</div></div>
+            <span class="pill warn">Add steps</span></div>`).join('')}`
+      : `<div class="empty"><div style="font-size:1.5rem;color:var(--ink);margin-bottom:10px">
+           Nothing due.</div>You're clear.</div>`;
+    el.innerHTML = planning + el.innerHTML;
+    if (d.planning) setTimeout(() => { if (state.view==='now') renderNow(); }, 4000);
+    return;
+  }
+
+  const s = d.step;
+  document.documentElement.style.setProperty('--accent', s.color || '#6B7FD7');
+
+  let flag = '';
+  if (d.overdue) flag = `<div class="flag over">PAST DUE · ${hm(d.remaining_min)} of work left</div>`;
+  else if (d.infeasible) flag = `<div class="flag over">${hm(d.remaining_min)} of work remaining before the deadline. Something has to give.</div>`;
+
+  el.innerHTML = `
+    ${planning}${flag}
+    <div class="now-card">
+      <div class="eyebrow">${esc(s.class_code || 'Now')}</div>
+      <div class="now-title">${esc(s.title)}</div>
+      <div class="now-meta">${hm(s.minutes)} &nbsp;·&nbsp; ${esc(s.assignment)}<br>
+        Step ${s.done_n + 1} of ${s.total_n} &nbsp;·&nbsp; ${dueText(s.due_at)}</div>
+      ${s.detail ? `<div class="now-detail">${esc(s.detail)}</div>` : ''}
+    </div>
+    <button class="btn primary" onclick="act(${s.subtask_id},'done')">Done</button>
+    <div class="btn-row">
+      <button class="btn" onclick="act(${s.subtask_id},'snooze')">Not now</button>
+      <button class="btn ghost" onclick="act(${s.subtask_id},'skip')">Skip step</button>
+    </div>`;
+}
+
+async function act(sid, action) {
+  await api(`/api/subtasks/${sid}`, {method:'PATCH', body:{action, snooze_minutes:90}});
+  toast(action === 'done' ? 'Done' : action === 'skip' ? 'Skipped' : 'Snoozed 90 min');
+  renderNow();
+}
+
+/* ---------------- WORK ---------------- */
+async function renderWork() {
+  const list = await api('/api/assignments?status=todo');
+  $('v-work').innerHTML = list.length ? list.map(a => {
+    const late = a.due_at && new Date(a.due_at) < new Date();
+    const none = a.total_n === 0;
+    return `<div class="item" style="border-left-color:${a.color||'#565C6E'}"
+                 onclick="openDetail(${a.id})">
+      <div class="item-main">
+        <div class="item-title">${esc(a.title)}</div>
+        <div class="item-sub">${esc(a.class_code||'No class')} · ${dueText(a.due_at)}${
+          none ? '' : ` · ${a.done_n}/${a.total_n}`}</div>
+      </div>
+      ${none ? '<span class="pill warn">No steps</span>'
+             : late ? '<span class="pill alert">Late</span>' : ''}
+    </div>`;
+  }).join('') : `<div class="empty">Nothing open.<br>Add an assignment to get started.</div>`;
+}
+
+/* ---------------- DETAIL ---------------- */
+async function openDetail(id) {
+  state.detailId = id;
+  state.backTo = ['settings','editassign'].includes(state.view) ? 'settings' : 'work';
+  go('detail');
+}
+
+let pollTimer = null;
+function stopPoll() { if (pollTimer) { clearTimeout(pollTimer); pollTimer = null; } }
+
+async function renderDetail() {
+  stopPoll();
+  const a = await api(`/api/assignments/${state.detailId}`);
+  const busy = a.job && ['pending','running'].includes(a.job.status);
+  const failed = a.job && a.job.status === 'failed';
+
+  if (busy) pollTimer = setTimeout(() => { if (state.view==='detail') renderDetail(); }, 3000);
+
+  const banner = busy
+    ? `<div class="banner busy"><span class="spin"></span>${
+        a.job.kind === 'extract' ? 'Reading the PDF…' : 'Planning the steps…'}</div>`
+    : failed
+    ? `<div class="banner fail">Planning failed. ${esc(String(a.job.last_error||'').slice(0,140))}
+       <br><button class="btn ghost" style="margin-top:12px" onclick="replan()">Try again</button></div>`
+    : a.confirmed === 0
+    ? `<div class="banner review">Check the details below came out right, then confirm.
+       <div style="margin-top:12px"><input id="fix-due" type="datetime-local"
+         value="${toLocalInput(a.due_at)}"></div>
+       <button class="btn primary" style="margin-top:12px" onclick="confirmExtract()">Looks right</button></div>`
+    : '';
+
+  const steps = a.subtasks.map(s => `
+    <div class="step ${s.status}">
+      <button class="check" onclick="toggleStep(${s.id}, '${s.status}')">${s.status==='done'?'✓':''}</button>
+      <div class="step-main">
+        <div class="step-title">${esc(s.title)}</div>
+        <div class="step-min">${hm(s.est_minutes)}${s.status==='skipped'?' · skipped':''}</div>
+      </div>
+      <button class="step-del" onclick="delStep(${s.id})">×</button>
+    </div>`).join('');
+
+  $('v-detail').innerHTML = `
+    ${banner}
+    <div style="font-size:1.4rem;font-weight:700;line-height:1.25">${esc(a.title)}</div>
+    <div class="item-sub" style="margin-bottom:22px">${dueText(a.due_at)}${a.kind==='exam'?' · Exam':''}</div>
+    ${steps || '<div class="empty" style="padding:30px 0">No steps yet. Break it down below.</div>'}
+    <label for="bulk">Add steps — one per line</label>
+    <textarea id="bulk" placeholder="Read prompt twice, highlight deliverables · 10
+Sort quotes into themes · 45
+Draft thesis · 20"></textarea>
+    <div class="hint">Put minutes after a · at the end of a line. Defaults to 30.
+      Keep steps 20–90 minutes, and make the first one nearly effortless.</div>
+    <button class="btn primary" style="margin-top:14px" onclick="addSteps()">Add steps</button>
+    <button class="btn ghost" style="margin-top:10px" onclick="replan()">Re-plan with Claude</button>
+    <button class="btn danger" style="margin-top:26px" onclick="delAssignment()">Delete assignment</button>`;
+}
+
+async function replan() {
+  await api(`/api/assignments/${state.detailId}`, {method:'PATCH', body:{replan:true}});
+  toast('Planning…'); renderDetail();
+}
+async function confirmExtract() {
+  const due = $('fix-due').value;
+  await api(`/api/assignments/${state.detailId}`, {method:'PATCH',
+    body:{confirmed:true, ...(due ? {due_at: toUTC(due)} : {})}});
+  toast('Confirmed'); renderDetail();
+}
+
+function parseSteps(text) {
+  return text.split('\n').map(l => l.trim()).filter(Boolean).map(line => {
+    const m = line.match(/^(.*?)\s*·\s*(\d+)\s*$/);
+    return m ? {title:m[1].trim(), est_minutes:parseInt(m[2])} : {title:line, est_minutes:30};
+  });
+}
+async function addSteps() {
+  const steps = parseSteps($('bulk').value);
+  if (!steps.length) return toast('Nothing to add');
+  await api(`/api/assignments/${state.detailId}/subtasks`, {method:'POST', body:steps});
+  toast(`Added ${steps.length} step${steps.length>1?'s':''}`);
+  renderDetail();
+}
+async function toggleStep(sid, status) {
+  await api(`/api/subtasks/${sid}`, {method:'PATCH', body:{action: status==='done' ? 'undo' : 'done'}});
+  renderDetail();
+}
+async function delStep(sid) {
+  await api(`/api/subtasks/${sid}`, {method:'DELETE'});
+  renderDetail();
+}
+async function delAssignment() {
+  if (!confirm('Delete this assignment and all its steps?')) return;
+  await api(`/api/assignments/${state.detailId}`, {method:'DELETE'});
+  toast('Deleted'); go('work');
+}
+
+/* ---------------- ADD ---------------- */
+function renderAdd() {
+  const t = state.addTab;
+  const opts = state.classes.map(c => `<option value="${c.id}">${esc(c.code)} — ${esc(c.name)}</option>`).join('');
+
+  const forms = {
+    assignment: `
+      <div class="drop" onclick="document.getElementById('a-file').click()">
+        <b>Upload a PDF</b>Claude reads it and plans the steps for you
+      </div>
+      <input id="a-file" type="file" accept="application/pdf" hidden onchange="uploadPdf()">
+      <div class="hint" style="text-align:center;margin:18px 0 4px">or enter it yourself</div>
+      <label for="a-class">Class</label>
+      <select id="a-class"><option value="">No class</option>${opts}</select>
+      <label for="a-title">Title</label>
+      <input id="a-title" placeholder="Ripley essay" autocomplete="off">
+      <label for="a-kind">Type</label>
+      <select id="a-kind">
+        <option value="deliverable">Something to hand in</option>
+        <option value="exam">Exam or quiz</option>
+      </select>
+      <label for="a-due">Due</label>
+      <input id="a-due" type="datetime-local">
+      <label for="a-desc">Notes (optional)</label>
+      <textarea id="a-desc" style="min-height:90px" placeholder="Paste the prompt here"></textarea>
+      <button class="btn primary" style="margin-top:20px" onclick="saveAssignment()">Save — Claude plans the steps</button>`,
+    event: `
+      <label for="e-title">Title</label>
+      <input id="e-title" placeholder="PSYC 360 lecture" autocomplete="off">
+      <label for="e-class">Class</label>
+      <select id="e-class"><option value="">No class</option>${opts}</select>
+      <label for="e-start">Starts</label>
+      <input id="e-start" type="datetime-local">
+      <label for="e-end">Ends</label>
+      <input id="e-end" type="datetime-local">
+      <label for="e-loc">Location</label>
+      <input id="e-loc" placeholder="Morton 202" autocomplete="off">
+      <label>Repeats weekly on</label>
+      <div class="days">${['S','M','T','W','T','F','S'].map((d,i) =>
+        `<button type="button" data-day="${i}" onclick="this.classList.toggle('on')">${d}</button>`).join('')}</div>
+      <div class="hint">Leave all off for a one-off event.</div>
+      <label for="e-until">Repeat until</label>
+      <input id="e-until" type="date">
+      <button class="btn primary" style="margin-top:20px" onclick="saveEvent()">Save event</button>`,
+    class: `
+      <label for="c-code">Code</label>
+      <input id="c-code" placeholder="PSYC 360" autocomplete="off">
+      <label for="c-name">Name</label>
+      <input id="c-name" placeholder="Adult Development and Aging" autocomplete="off">
+      <label for="c-color">Colour</label>
+      <input id="c-color" type="color" value="#6B7FD7" style="height:56px;padding:6px">
+      <div class="hint">This colour marks the class on the TV display.</div>
+      <button class="btn primary" style="margin-top:20px" onclick="saveClass()">Save class</button>
+      ${state.classes.length ? `
+        <label>Syllabus</label>
+        <select id="s-class">${opts}</select>
+        <div class="drop" style="margin-top:10px" onclick="document.getElementById('s-file').click()">
+          <b>Upload a syllabus</b>Gives Claude course context, so the steps fit the course
+        </div>
+        <input id="s-file" type="file" accept="application/pdf" hidden onchange="uploadSyllabus()">` : ''}`,
+  };
+
+  $('v-add').innerHTML = `
+    <div class="seg">
+      ${['assignment','event','class'].map(k =>
+        `<button class="${k===t?'on':''}" onclick="state.addTab='${k}';renderAdd()">
+          ${k[0].toUpperCase()+k.slice(1)}</button>`).join('')}
+    </div>
+    ${forms[t]}`;
+}
+
+async function saveAssignment() {
+  const title = $('a-title').value.trim();
+  if (!title) return toast('Title required');
+  const r = await api('/api/assignments', {method:'POST', body:{
+    title,
+    class_id: $('a-class').value ? +$('a-class').value : null,
+    kind: $('a-kind').value,
+    due_at: toUTC($('a-due').value),
+    description: $('a-desc').value.trim() || null,
+  }});
+  toast('Saved');
+  openDetail(r.id);
+}
+async function uploadPdf() {
+  const f = $('a-file').files[0]; if (!f) return;
+  const fd = new FormData(); fd.append('file', f);
+  if ($('a-class').value) fd.append('class_id', $('a-class').value);
+  toast('Uploading…');
+  const r = await fetch('/api/assignments/upload', {method:'POST', body:fd});
+  if (!r.ok) return toast('Upload failed');
+  openDetail((await r.json()).id);
+}
+
+async function uploadSyllabus() {
+  const f = $('s-file').files[0]; if (!f) return;
+  const fd = new FormData(); fd.append('file', f); fd.append('doc_type','syllabus');
+  const r = await fetch(`/api/classes/${$('s-class').value}/documents`, {method:'POST', body:fd});
+  toast(r.ok ? 'Syllabus queued' : 'Upload failed');
+}
+
+async function saveEvent() {
+  const title = $('e-title').value.trim(), start = $('e-start').value;
+  if (!title || !start) return toast('Title and start required');
+  const days = [...document.querySelectorAll('.days button.on')]
+                 .map(b => b.dataset.day).join(',');
+  let until = $('e-until').value;
+  if (days && !until) return toast('Set a repeat-until date');
+  await api('/api/events', {method:'POST', body:{
+    title, start_at: toUTC(start), end_at: toUTC($('e-end').value),
+    class_id: $('e-class').value ? +$('e-class').value : null,
+    location: $('e-loc').value.trim() || null,
+    repeat_days: days || null,
+    repeat_until: until ? new Date(until + 'T23:59').toISOString() : null,
+  }});
+  toast(days ? 'Weekly event saved' : 'Event saved'); go('now');
+}
+async function saveClass() {
+  const code = $('c-code').value.trim(), name = $('c-name').value.trim();
+  if (!code || !name) return toast('Code and name required');
+  await api('/api/classes', {method:'POST', body:{code, name, color:$('c-color').value}});
+  state.classes = await api('/api/classes');
+  toast('Class saved'); state.addTab = 'assignment'; renderAdd();
+}
+
+/* ---------------- SETTINGS ---------------- */
+async function renderSettings() {
+  const [classes, assigns, series, cfg] = await Promise.all([
+    api('/api/classes'), api('/api/assignments'),
+    api('/api/events/series'), api('/api/settings'),
+  ]);
+  state.classes = classes;
+
+  const num = (k, label, hint) => `
+    <label for="s-${k}">${label}</label>
+    <input id="s-${k}" type="number" value="${cfg[k] ?? ''}" inputmode="numeric">
+    ${hint ? `<div class="hint">${hint}</div>` : ''}`;
+
+  const open = assigns.filter(a => a.status === 'todo');
+  const done = assigns.filter(a => a.status !== 'todo');
+
+  $('v-settings').innerHTML = `
+    <div class="sect">
+      <h3>Classes</h3>
+      ${classes.length ? classes.map(c => `
+        <div class="item" style="border-left-color:${c.color}" onclick="editClass(${c.id})">
+          <span class="swatch" style="--c:${c.color}"></span>
+          <div class="item-main">
+            <div class="item-title">${esc(c.code)}</div>
+            <div class="item-sub">${esc(c.name)}${c.context ? ' · syllabus loaded' : ''}</div>
+          </div><span class="chev">›</span>
+        </div>`).join('') : '<div class="hint">No classes yet.</div>'}
+    </div>
+
+    <div class="sect">
+      <h3>Assignments — ${open.length} open</h3>
+      ${open.map(a => `
+        <div class="item" style="border-left-color:${a.color || '#565C6E'}"
+             onclick="editAssign(${a.id})">
+          <div class="item-main">
+            <div class="item-title">${esc(a.title)}</div>
+            <div class="item-sub">${esc(a.class_code || 'No class')} · ${dueText(a.due_at)}${
+              a.total_n ? ` · ${a.done_n}/${a.total_n}` : ' · no steps'}</div>
+          </div><span class="chev">›</span>
+        </div>`).join('')}
+      ${done.length ? `<h3 style="margin-top:22px">Finished — ${done.length}</h3>` +
+        done.map(a => `
+        <div class="item" style="border-left-color:${a.color || '#565C6E'};opacity:.6"
+             onclick="editAssign(${a.id})">
+          <div class="item-main"><div class="item-title">${esc(a.title)}</div>
+          <div class="item-sub">${esc(a.class_code || '')} · done</div></div>
+          <span class="chev">›</span>
+        </div>`).join('') : ''}
+    </div>
+
+    <div class="sect">
+      <h3>Recurring &amp; one-off events</h3>
+      ${series.length ? series.map(e => {
+        const d = new Date(e.start_at);
+        const days = e.repeat_days
+          ? e.repeat_days.split(',').map(i => ['Su','Mo','Tu','We','Th','Fr','Sa'][+i]).join(' ')
+          : d.toLocaleDateString([], {month:'short', day:'numeric'});
+        return `<div class="item" style="border-left-color:${e.color || '#565C6E'}">
+          <div class="item-main">
+            <div class="item-title">${esc(e.title)}</div>
+            <div class="item-sub">${days} · ${d.toLocaleTimeString([], {hour:'numeric',minute:'2-digit'})}${
+              e.location ? ' · ' + esc(e.location) : ''}</div>
+          </div>
+          <button class="step-del" onclick="event.stopPropagation();delEvent(${e.id})">×</button>
+        </div>`;
+      }).join('') : '<div class="hint">No events yet.</div>'}
+    </div>
+
+    <div class="sect">
+      <h3>Claude API usage</h3>
+      <div id="usage"><div class="hint">Loading…</div></div>
+    </div>
+
+    <div class="sect">
+      <h3>Schedule</h3>
+      <div class="row2">
+        <div>${num('day_start_hour','Day starts (24h)')}</div>
+        <div>${num('day_end_hour','Day ends (24h)')}</div>
+      </div>
+      ${num('max_daily_min','Max study per day (min)','Caps front-loading. 240 = 4 hours.')}
+      <div class="row2">
+        <div>${num('min_chunk','Min block (min)')}</div>
+        <div>${num('max_block','Max block (min)')}</div>
+      </div>
+      <div class="row2">
+        <div>${num('buffer_min','Buffer round events (min)')}</div>
+        <div>${num('horizon_days','Plan ahead (days)')}</div>
+      </div>
+      ${num('exam_per_day','Exam sessions per day','Spacing beats cramming. 1 is recommended.')}
+      <label for="s-layout">TV layout</label>
+      <select id="s-layout">
+        <option value="auto"${(cfg.layout||'auto')==='auto'?' selected':''}>Auto (by screen shape)</option>
+        <option value="h"${cfg.layout==='h'?' selected':''}>Side by side</option>
+        <option value="v"${cfg.layout==='v'?' selected':''}>Stacked</option>
+      </select>
+      <button class="btn primary" style="margin-top:20px" onclick="saveSettings()">Save schedule settings</button>
+    </div>`;
+
+  renderUsage();
+}
+
+async function renderUsage() {
+  let u;
+  try { u = await api('/api/usage'); } catch { return; }
+  const money = n => '$' + (n < 0.01 && n > 0 ? n.toFixed(4) : n.toFixed(2));
+  const top = Math.max(...u.by_kind.map(k => k.cost), 0.0001);
+
+  $('usage').innerHTML = `
+    <div class="stats">
+      <div class="stat"><div class="v">${money(u.today.cost)}</div><div class="k">Today</div></div>
+      <div class="stat"><div class="v">${money(u.week.cost)}</div><div class="k">7 days</div></div>
+      <div class="stat"><div class="v">${money(u.all_time.cost)}</div><div class="k">All time</div></div>
+    </div>
+    ${u.by_kind.length ? u.by_kind.map(k => `
+      <div class="bar">
+        <span class="t">${esc(k.kind.replace('_',' '))}</span>
+        <span class="g"><i style="width:${Math.round(k.cost/top*100)}%"></i></span>
+        <span class="n">${money(k.cost)}</span>
+      </div>`).join('') : '<div class="hint">No API calls logged yet.</div>'}
+    <div class="hint" style="margin-top:12px">
+      ${u.month.calls} call${u.month.calls===1?'':'s'} in 30 days ·
+      ${(u.month.input/1000).toFixed(0)}k in / ${(u.month.output/1000).toFixed(0)}k out
+      ${u.wasted.calls ? `<br><span style="color:var(--warn)">${u.wasted.calls} failed call${
+        u.wasted.calls===1?'':'s'} cost ${money(u.wasted.cost)}</span>` : ''}
+      <br>Estimated locally. Authoritative billing is in the Claude Console.
+    </div>`;
+}
+
+const NUMKEYS = ['day_start_hour','day_end_hour','max_daily_min','min_chunk',
+                 'max_block','buffer_min','horizon_days','exam_per_day'];
+async function saveSettings() {
+  const body = {layout: $('s-layout').value};
+  for (const k of NUMKEYS) {
+    const v = $('s-' + k)?.value;
+    if (v !== '' && v != null) body[k] = +v;
+  }
+  if (body.day_start_hour >= body.day_end_hour)
+    return toast('Day must end after it starts');
+  if (body.min_chunk > body.max_block)
+    return toast('Min block exceeds max block');
+  await api('/api/settings', {method:'PUT', body});
+  toast('Saved — the plan will re-flow');
+}
+
+/* ---------------- EDIT CLASS ---------------- */
+async function editClass(id) { state.editId = id; go('editclass'); }
+
+async function renderEditClass() {
+  const c = await api(`/api/classes/${state.editId}`);
+  let sched = [];
+  try { sched = c.topic_schedule ? JSON.parse(c.topic_schedule) : []; } catch {}
+
+  $('v-editclass').innerHTML = `
+    <label for="c-code">Code</label>
+    <input id="c-code" value="${esc(c.code)}">
+    <label for="c-name">Name</label>
+    <input id="c-name" value="${esc(c.name)}">
+    <label for="c-term">Term</label>
+    <input id="c-term" value="${esc(c.term || '')}" placeholder="2026 Fall">
+    <label for="c-color">Colour</label>
+    <input id="c-color" type="color" value="${c.color || '#6B7FD7'}" style="height:56px;padding:6px">
+    <button class="btn primary" style="margin-top:18px" onclick="saveClass2()">Save class</button>
+
+    <div class="sect" style="margin-top:30px">
+      <h3>Syllabus &amp; context</h3>
+      ${c.documents.length ? c.documents.map(d => `
+        <div class="doc"><span style="flex:1">${esc(d.filename)}</span>
+          <span class="mini">${esc(d.doc_type || '')}</span>
+          <button class="step-del" onclick="delDoc(${c.id},${d.id})">×</button></div>`).join('')
+        : '<div class="hint">No syllabus uploaded.</div>'}
+      <div class="drop" style="margin-top:12px" onclick="document.getElementById('c-file').click()">
+        <b>Upload a syllabus</b>Gives Claude course context and the topic calendar
+      </div>
+      <input id="c-file" type="file" accept="application/pdf" hidden onchange="uploadSyllabus2(${c.id})">
+      ${c.context ? `<div class="hint" style="margin-top:14px;white-space:pre-wrap">${esc(c.context)}</div>` : ''}
+      ${sched.length ? `<h3 style="margin-top:22px">Topic calendar — ${sched.length} dates</h3>` +
+        sched.slice(0,12).map(e => `<div class="doc"><span class="mini" style="width:6.5em">${
+          esc(e.date)}</span><span style="flex:1">${esc(e.topics)}</span></div>`).join('') : ''}
+    </div>
+
+    <div class="sect" style="margin-top:26px">
+      <h3>Free copies of readings</h3>
+      <div id="mats"><div class="hint">Loading…</div></div>
+    </div>
+
+    <div class="warnbox" style="margin-top:26px">Deleting this class keeps its
+      ${c.assignment_count} assignment${c.assignment_count===1?'':'s'} but unlinks them.</div>
+    <button class="btn danger" onclick="delClass(${c.id})">Delete class</button>`;
+
+  renderMaterials(c.id);
+}
+
+const KINDLABEL = {oer:'Open textbook', public_domain:'Public domain',
+                   lending:'Borrow', alternative:'Similar open text', article:'Open access'};
+
+async function renderMaterials(cid) {
+  let m;
+  try { m = await api(`/api/classes/${cid}/materials`); } catch { return; }
+  if (!m.readings.length) {
+    $('mats').innerHTML = `<div class="hint">Upload a syllabus first — the reading
+      list is pulled from it.</div>`;
+    return;
+  }
+  const rows = m.readings.map(r => {
+    const hits = m.found[r.title] || [];
+    return `<div style="padding:12px 0;border-bottom:1px solid var(--line)">
+      <div style="font-weight:600;font-size:.95rem">${esc(r.title)}</div>
+      <div class="item-sub">${esc(r.author || '')}${r.type ? ' · ' + esc(r.type) : ''}</div>
+      ${hits.length ? hits.map(h => `
+        <div style="margin-top:8px;padding-left:10px;border-left:2px solid var(--ok)">
+          <a href="${esc(h.url)}" target="_blank" rel="noopener"
+             style="color:var(--accent);font-size:.9rem">${esc(h.title || h.url)}</a>
+          <div class="mini" style="margin-top:3px">${esc(KINDLABEL[h.item_kind] || h.item_kind)}${
+            h.source ? ' · ' + esc(h.source) : ''}</div>
+          ${h.note ? `<div class="hint" style="margin-top:3px">${esc(h.note)}</div>` : ''}
+        </div>`).join('')
+      : '<div class="mini" style="margin-top:6px">No free copy found</div>'}
+    </div>`;
+  }).join('');
+
+  $('mats').innerHTML = `
+    <div class="hint" style="margin-bottom:12px">${m.with_results} of ${
+      m.readings.length} readings have a legally free copy.</div>
+    ${rows}
+    <button class="btn ghost" style="margin-top:14px" onclick="searchMats(${cid})">
+      Search again</button>
+    <div class="hint" style="margin-top:10px">Searches open textbooks, public-domain
+      archives, lending libraries, and open-access repositories only. For a current
+      commercial textbook, your library's course reserves or an ebook licence is
+      usually the real answer.</div>`;
+}
+
+async function searchMats(cid) {
+  await api(`/api/classes/${cid}/materials/search`, {method:'POST'});
+  toast('Searching…');
+  setTimeout(() => renderMaterials(cid), 12000);
+}
+
+async function saveClass2() {
+  await api(`/api/classes/${state.editId}`, {method:'PATCH', body:{
+    code: $('c-code').value.trim(), name: $('c-name').value.trim(),
+    term: $('c-term').value.trim() || null, color: $('c-color').value,
+  }});
+  state.classes = await api('/api/classes');
+  toast('Class saved'); go('settings');
+}
+async function delClass(id) {
+  if (!confirm('Delete this class? Its assignments will remain but lose the link.')) return;
+  await api(`/api/classes/${id}`, {method:'DELETE'});
+  state.classes = await api('/api/classes');
+  toast('Class deleted'); go('settings');
+}
+async function delDoc(cid, did) {
+  await api(`/api/classes/${cid}/documents/${did}`, {method:'DELETE'});
+  renderEditClass();
+}
+async function uploadSyllabus2(cid) {
+  const f = $('c-file').files[0]; if (!f) return;
+  const fd = new FormData(); fd.append('file', f); fd.append('doc_type','syllabus');
+  toast('Uploading…');
+  const r = await fetch(`/api/classes/${cid}/documents`, {method:'POST', body:fd});
+  toast(r.ok ? 'Reading syllabus…' : 'Upload failed');
+  setTimeout(renderEditClass, 6000);
+}
+
+/* ---------------- EDIT ASSIGNMENT ---------------- */
+async function editAssign(id) { state.editId = id; go('editassign'); }
+
+async function renderEditAssign() {
+  const a = await api(`/api/assignments/${state.editId}`);
+  const opts = state.classes.map(c =>
+    `<option value="${c.id}"${c.id===a.class_id?' selected':''}>${esc(c.code)} — ${esc(c.name)}</option>`).join('');
+  $('v-editassign').innerHTML = `
+    <label for="e-title">Title</label>
+    <input id="e-title" value="${esc(a.title)}">
+    <label for="e-class">Class</label>
+    <select id="e-class"><option value="">No class</option>${opts}</select>
+    <label for="e-kind">Type</label>
+    <select id="e-kind">
+      <option value="deliverable"${a.kind==='deliverable'?' selected':''}>Something to hand in</option>
+      <option value="exam"${a.kind==='exam'?' selected':''}>Exam or quiz</option>
+    </select>
+    <label for="e-due">Due</label>
+    <input id="e-due" type="datetime-local" value="${toLocalInput(a.due_at)}">
+    <label for="e-desc">Notes</label>
+    <textarea id="e-desc" style="min-height:110px">${esc(a.description || '')}</textarea>
+    <label for="e-status">Status</label>
+    <select id="e-status">
+      <option value="todo"${a.status==='todo'?' selected':''}>Open</option>
+      <option value="done"${a.status==='done'?' selected':''}>Finished</option>
+    </select>
+    <button class="btn primary" style="margin-top:18px" onclick="saveAssign2()">Save</button>
+    <button class="btn" style="margin-top:10px" onclick="openDetail(${a.id})">
+      Edit steps (${a.subtasks.length})</button>
+    <button class="btn ghost" style="margin-top:10px" onclick="replanFrom(${a.id})">Re-plan with Claude</button>
+    <button class="btn danger" style="margin-top:26px" onclick="delAssign2(${a.id})">Delete assignment</button>`;
+}
+
+async function saveAssign2() {
+  const due = $('e-due').value;
+  await api(`/api/assignments/${state.editId}`, {method:'PATCH', body:{
+    title: $('e-title').value.trim(),
+    class_id: $('e-class').value ? +$('e-class').value : null,
+    kind: $('e-kind').value,
+    due_at: due ? toUTC(due) : null,
+    description: $('e-desc').value.trim() || null,
+    status: $('e-status').value,
+  }});
+  toast('Saved'); go('settings');
+}
+async function delAssign2(id) {
+  if (!confirm('Delete this assignment and all its steps?')) return;
+  await api(`/api/assignments/${id}`, {method:'DELETE'});
+  toast('Deleted'); go('settings');
+}
+async function replanFrom(id) {
+  await api(`/api/assignments/${id}`, {method:'PATCH', body:{replan:true}});
+  toast('Planning…'); state.detailId = id; go('detail');
+}
+async function delEvent(id) {
+  if (!confirm('Delete this event and all its occurrences?')) return;
+  await api(`/api/events/${id}`, {method:'DELETE'});
+  toast('Event deleted'); renderSettings();
+}
+
+/* ---------------- router ---------------- */
+const TITLES = {now:'Now', work:'Work', detail:'Assignment', add:'Add',
+                settings:'Settings', editclass:'Edit class', editassign:'Edit assignment'};
+async function go(view) {
+  if (state.view === 'detail' && view !== 'detail') stopPoll();
+  state.view = view;
+  document.querySelectorAll('.view').forEach(v => v.classList.remove('on'));
+  $('v-' + view).classList.add('on');
+  $('title').textContent = TITLES[view];
+  $('back').hidden = !['detail','editclass','editassign'].includes(view);
+  document.querySelectorAll('nav button').forEach(b =>
+    b.classList.toggle('on', b.dataset.go === view));
+  window.scrollTo(0, 0);
+  try {
+    if (view === 'now')    await renderNow();
+    if (view === 'work')   await renderWork();
+    if (view === 'detail') await renderDetail();
+    if (view === 'add')    renderAdd();
+    if (view === 'settings')   await renderSettings();
+    if (view === 'editclass')  await renderEditClass();
+    if (view === 'editassign') await renderEditAssign();
+  } catch (e) {
+    $('v-' + view).innerHTML = `<div class="empty">Couldn't reach the server.<br>
+      <span class="mono" style="font-size:.8rem">${esc(String(e.message).slice(0,120))}</span></div>`;
+  }
+}
+
+document.querySelectorAll('nav button').forEach(b =>
+  b.addEventListener('click', () => go(b.dataset.go)));
+$('back').addEventListener('click', () =>
+  go(['editclass','editassign'].includes(state.view) ? 'settings'
+     : state.backTo || 'work'));
+
+// Refresh Now when the app comes back to the foreground.
+document.addEventListener('visibilitychange', () => {
+  if (!document.hidden && state.view === 'now') renderNow();
+});
+
+(async () => {
+  try { state.classes = await api('/api/classes'); } catch {}
+  go('now');
+})();
+</script>
+</body>
+</html>

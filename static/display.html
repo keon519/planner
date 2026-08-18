@@ -1,0 +1,530 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Planner</title>
+<style>
+  :root {
+    --ground:    #14161F;
+    --panel:     #191C27;
+    --ink:       #E9E7E1;
+    --ink-dim:   #8B90A0;
+    --ink-faint: #454B5C;
+    --line:      #262B3A;
+    --warn:      #E0A458;
+    --alert:     #C2565B;
+    --done:      #6BB58A;
+    --accent:    #6B7FD7;
+    --gap: clamp(14px, 1.6vw, 26px);
+    --mono: 'Ubuntu Mono', 'DejaVu Sans Mono', monospace;
+    /* The now-line's fixed height, as a fraction of the timeline. */
+    --nowpos: 44.4%;
+  }
+  * { margin:0; padding:0; box-sizing:border-box; }
+  html, body {
+    height:100%; background:var(--ground); color:var(--ink); overflow:hidden;
+    font-family:'Ubuntu','Segoe UI',system-ui,sans-serif; cursor:none;
+  }
+
+  /* ---------------------------------------------------------------
+     BURN-IN MITIGATION
+     Four independent layers, since a display that never changes will
+     ghost within weeks:
+       1. the timeline scrolls continuously (structural — see script)
+       2. slow continuous drift of the whole frame, 20-minute cycle
+       3. an hourly luminance wash sweeping across the panel
+       4. reduced opacity overnight
+     --------------------------------------------------------------- */
+  @keyframes drift {
+    0%   { transform: translate(0px,     0px); }
+    25%  { transform: translate(14px,   -9px); }
+    50%  { transform: translate(20px,   11px); }
+    75%  { transform: translate(-6px,   16px); }
+    100% { transform: translate(0px,     0px); }
+  }
+  #frame {
+    height:100%; display:flex; flex-direction:column;
+    padding:var(--gap); gap:var(--gap);
+    animation: drift 1200s ease-in-out infinite;
+    transition: opacity 2s ease;
+  }
+  body.night #frame { opacity:var(--nightdim, .05); }
+
+  @keyframes wash {
+    0%   { opacity:0; transform:translateY(-100%); }
+    12%  { opacity:.05; }
+    88%  { opacity:.05; }
+    100% { opacity:0; transform:translateY(100%); }
+  }
+  #wash {
+    position:fixed; inset:0; pointer-events:none; z-index:99; opacity:0;
+    background:linear-gradient(180deg, transparent, rgba(233,231,225,.5), transparent);
+  }
+  #wash.run { animation: wash 7s linear 1; }
+
+  .bar {
+    display:flex; justify-content:space-between; align-items:baseline; gap:1em;
+    font-family:var(--mono); letter-spacing:.18em; text-transform:uppercase;
+    font-size:clamp(.75rem,1.1vw,1.15rem); color:var(--ink-faint); flex:none;
+  }
+  .bar .stale { color:var(--warn); }
+
+  #split { flex:1; display:grid; gap:var(--gap); min-height:0; }
+  body.h #split { grid-template-columns:1.15fr 1fr; }
+  body.v #split { grid-template-rows:1.3fr 1fr; }
+
+  .panel {
+    background:var(--panel); border-radius:12px; padding:var(--gap);
+    display:flex; flex-direction:column; min-height:0; min-width:0;
+  }
+  .panel > h2 {
+    font-family:var(--mono); font-size:clamp(.7rem,1vw,1rem);
+    letter-spacing:.24em; text-transform:uppercase; color:var(--ink-faint);
+    font-weight:400; margin-bottom:.8em; flex:none;
+    display:flex; justify-content:space-between; align-items:baseline; gap:1em;
+  }
+  .panel > h2 span { color:var(--ink-dim); letter-spacing:.1em; }
+
+  #nowstrip {
+    flex:none; border-left:3px solid var(--accent);
+    padding-left:.8em; margin-bottom:.8em;
+  }
+  #nowstrip .lbl {
+    font-family:var(--mono); font-size:clamp(.62rem,.85vw,.85rem);
+    letter-spacing:.22em; text-transform:uppercase; color:var(--accent);
+  }
+  #nowstrip .txt {
+    font-size:clamp(1rem,1.7vw,1.85rem); font-weight:700; line-height:1.15;
+    margin-top:.25em; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+  }
+  #nowstrip .sub {
+    font-family:var(--mono); font-size:clamp(.6rem,.85vw,.9rem);
+    letter-spacing:.1em; text-transform:uppercase; color:var(--ink-faint);
+    margin-top:.3em; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+  }
+
+  /* ------------------------- scrolling timeline ------------------------- */
+  #tl { flex:1; position:relative; min-height:0; overflow:hidden; }
+  /* Everything time-anchored lives in here and slides upward. */
+  #tape { position:absolute; left:0; right:0; top:0; will-change:transform; }
+
+  .hr { position:absolute; left:4.4em; right:0; border-top:1px solid var(--line); }
+  .hr.ten  { border-top-color:rgba(38,43,58,.38); }
+  .hr.past { border-top-style:dotted; }
+  .hrlab {
+    position:absolute; left:0; width:4em; text-align:right;
+    font-family:var(--mono); font-size:clamp(.58rem,.8vw,.82rem);
+    color:var(--ink-faint); transform:translateY(-50%);
+    letter-spacing:.04em; white-space:nowrap;
+  }
+  .lane { position:absolute; left:4.4em; right:0; top:0; bottom:0; }
+
+  .ev, .blk, .cmp {
+    position:absolute; left:0; right:0; border-radius:5px;
+    padding:.2em .55em; overflow:hidden; min-height:1.5em;
+    font-size:clamp(.62rem,.9vw,.94rem); line-height:1.2;
+  }
+  /* Fixed commitments: filled, receded. Nothing to decide about these. */
+  .ev {
+    background:color-mix(in srgb, var(--c) 20%, transparent);
+    border:1px solid color-mix(in srgb, var(--c) 40%, transparent);
+    color:var(--ink-dim);
+  }
+  /* Planned work: brighter, accented edge. These are actionable. */
+  .blk {
+    background:color-mix(in srgb, var(--c) 11%, transparent);
+    border-left:3px solid var(--c); color:var(--ink);
+  }
+  .blk.live { background:color-mix(in srgb, var(--c) 30%, transparent);
+              box-shadow:0 0 0 1px var(--c); }
+  /* Done: the planned block, turned green in place. */
+  .cmp {
+    background:color-mix(in srgb, var(--done) 20%, transparent);
+    border-left:3px solid var(--done);
+    color:color-mix(in srgb, var(--done) 62%, var(--ink));
+  }
+  .cmp b::before { content:'✓\00a0'; color:var(--done); font-weight:700; }
+  .cmp .meta { color:color-mix(in srgb, var(--done) 45%, var(--ink-faint)); }
+  /* Completed somewhere other than its planned slot. */
+  .cmp.offplan { border-left-style:dashed; }
+  .ev b, .blk b, .cmp b {
+    font-weight:600; display:block;
+    overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+  }
+  .meta {
+    font-family:var(--mono); font-size:.78em; letter-spacing:.06em;
+    color:var(--ink-faint); text-transform:uppercase; display:block;
+    overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+  }
+  .short .meta { display:none; }
+  .past { opacity:.5; }
+
+  /* Fixed now-line — the tape head. Everything else moves past it. */
+  #tick {
+    position:absolute; left:4.4em; right:0; top:var(--nowpos);
+    height:0; border-top:2px solid var(--alert); z-index:6;
+  }
+  #tick::before {
+    content:attr(data-t); position:absolute; left:-4.4em; top:-.62em;
+    width:4em; text-align:right; white-space:nowrap;
+    font-family:var(--mono); font-size:clamp(.56rem,.78vw,.8rem);
+    color:var(--alert); letter-spacing:.03em;
+  }
+  /* Fade the extremes so items don't pop in and out at the edges. */
+  #tl::before, #tl::after {
+    content:''; position:absolute; left:0; right:0; height:2.4em;
+    z-index:7; pointer-events:none;
+  }
+  #tl::before { top:0;    background:linear-gradient(var(--panel), transparent); }
+  #tl::after  { bottom:0; background:linear-gradient(transparent, var(--panel)); }
+
+  /* ------------------------------- week -------------------------------- */
+  #week { flex:1; display:flex; flex-direction:column; min-height:0; overflow:hidden; }
+  .day {
+    display:grid; grid-template-columns:4.8em 1fr; gap:.9em;
+    padding:.42em 0; border-top:1px solid var(--line); min-height:0;
+  }
+  .day:first-child { border-top:none; }
+  .day.today .dl { color:var(--accent); }
+  .dl {
+    font-family:var(--mono); font-size:clamp(.62rem,.9vw,.92rem);
+    letter-spacing:.13em; text-transform:uppercase;
+    color:var(--ink-faint); padding-top:.15em;
+  }
+  .dl .load {
+    display:block; margin-top:.25em; font-size:.82em;
+    letter-spacing:.06em; color:var(--accent); opacity:.7;
+  }
+  .di { display:flex; flex-direction:column; gap:.3em; min-width:0; }
+  .as { display:flex; align-items:center; gap:.6em; min-width:0; }
+  .dot { width:.5em; height:.5em; border-radius:50%; background:var(--c); flex:none; }
+  .an {
+    font-size:clamp(.7rem,1vw,1.03rem); flex:1; min-width:0;
+    overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+  }
+  .ac {
+    font-family:var(--mono); font-size:clamp(.55rem,.78vw,.8rem);
+    letter-spacing:.09em; color:var(--ink-faint); flex:none;
+  }
+  .prog { width:3.4em; height:3px; background:var(--line); border-radius:2px; flex:none; }
+  .prog i { display:block; height:100%; background:var(--c); border-radius:2px; }
+  .none {
+    font-family:var(--mono); font-size:clamp(.58rem,.82vw,.85rem);
+    color:var(--ink-faint); letter-spacing:.1em;
+  }
+
+  .warnrow {
+    flex:none; margin-top:.6em; font-family:var(--mono);
+    font-size:clamp(.58rem,.84vw,.88rem); letter-spacing:.1em;
+    text-transform:uppercase; color:var(--warn);
+  }
+  .warnrow.bad { color:var(--alert); }
+
+  @media (prefers-reduced-motion: reduce) {
+    #frame { animation:none; }
+    #wash  { display:none; }
+  }
+</style>
+</head>
+<body>
+<div id="wash"></div>
+<div id="frame">
+  <div class="bar">
+    <span id="date">—</span>
+    <span id="load"></span>
+    <span id="clock">—</span>
+  </div>
+
+  <div id="split">
+    <section class="panel">
+      <h2>Timeline <span id="dayfree"></span></h2>
+      <div id="nowstrip"></div>
+      <div id="tl">
+        <div id="tape"></div>
+        <div id="tick" data-t=""></div>
+      </div>
+      <div class="warnrow" id="dwarn" hidden></div>
+    </section>
+
+    <section class="panel">
+      <h2>Week ahead <span id="wkcount"></span></h2>
+      <div id="week"></div>
+    </section>
+  </div>
+</div>
+
+<script>
+const $ = id => document.getElementById(id);
+const P = new URLSearchParams(location.search);
+
+const BACK = +(P.get('back') || 240);   // minutes of history shown
+const FWD  = +(P.get('fwd')  || 300);   // minutes of plan shown
+const SPAN = BACK + FWD;                // total minutes in view
+const PAD  = 120;                       // rendered beyond the edges, in minutes
+
+// Overnight dimming. 0.05 = 5% brightness — a faint glow, not a lamp.
+const NIGHTDIM  = P.get('nightdim') || '0.05';
+const NIGHT_FROM = +(P.get('nightfrom') || 0);   // hour it starts
+const NIGHT_TO   = +(P.get('nightto')   || 7);   // hour it ends
+document.documentElement.style.setProperty('--nightdim', NIGHTDIM);
+
+let lastGood = 0, settings = {}, anchor = null, lastWindow = null;
+
+function applyLayout() {
+  const want = (P.get('layout') || settings.layout || 'auto').toLowerCase();
+  const h = want === 'h' || want === 'horizontal' ||
+            (want === 'auto' && innerWidth / innerHeight >= 1.25);
+  document.body.classList.toggle('h', h);
+  document.body.classList.toggle('v', !h);
+  document.documentElement.style.setProperty('--nowpos', (BACK / SPAN * 100) + '%');
+}
+addEventListener('resize', applyLayout);
+
+const esc = s => (s ?? '').replace(/[&<>"]/g, c =>
+  ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const D = s => new Date(s);
+const hhmm = d => d.toLocaleTimeString([], {hour:'numeric', minute:'2-digit'});
+function hm(m) {
+  m = Math.round(m);
+  if (m < 60) return m + 'm';
+  const h = Math.floor(m/60), r = m % 60;
+  return r ? `${h}h ${r}m` : `${h}h`;
+}
+function localDate(d) {
+  const p = n => String(n).padStart(2,'0');
+  return `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())}`;
+}
+
+function tick() {
+  const d = new Date();
+  $('clock').textContent = hhmm(d);
+  $('tick').dataset.t = hhmm(d);
+  if (!$('date').classList.contains('stale')) {
+    $('date').textContent =
+      d.toLocaleDateString([], {weekday:'long', day:'numeric', month:'long'});
+  }
+  const h = d.getHours();
+  // Handles a window that wraps past midnight (e.g. 23 -> 7) as well as
+  // one that doesn't (0 -> 7).
+  const night = NIGHT_FROM < NIGHT_TO
+    ? (h >= NIGHT_FROM && h < NIGHT_TO)
+    : (h >= NIGHT_FROM || h < NIGHT_TO);
+  document.body.classList.toggle('night', night);
+}
+
+/* ------------------------------------------------------------------
+   The tape.
+
+   Items are laid out once against a fixed anchor time, then the whole
+   strip is translated upward as the clock advances. Re-rendering every
+   frame would be wasteful and would jitter; translating a single element
+   is smooth and nearly free.
+   ------------------------------------------------------------------ */
+function renderTape(w) {
+  anchor = D(w.now);
+  lastWindow = w;
+  // The strip covers the window plus padding at both ends. Everything is
+  // expressed as a percentage of the strip, so the layout is independent of
+  // the container's pixel height — fullscreen and windowed both work without
+  // re-measuring anything.
+  const topTime = new Date(anchor.getTime() - (BACK + PAD) * 60000);
+  const totalMin = SPAN + PAD * 2;
+  const y = t => (D(t) - topTime) / 60000 / totalMin * 100;
+  const tape = $('tape');
+  tape.style.height = (totalMin / SPAN * 100) + '%';
+
+  let h = '';
+  // gridlines every 10 min, labels on the hour
+  const first = new Date(topTime);
+  first.setSeconds(0, 0);
+  first.setMinutes(Math.ceil(first.getMinutes() / 10) * 10);
+  for (let t = new Date(first); t < new Date(topTime.getTime() + totalMin*60000);
+       t = new Date(t.getTime() + 600000)) {
+    const onHour = t.getMinutes() === 0;
+    const past = t < anchor;
+    h += `<div class="hr${onHour ? '' : ' ten'}${past ? ' past' : ''}" style="top:${y(t)}%"></div>`;
+    if (onHour) {
+      h += `<div class="hrlab" style="top:${y(t)}%">${
+        t.toLocaleTimeString([], {hour:'numeric'}).replace(/\s/g,'')}</div>`;
+    }
+  }
+
+  h += '<div class="lane">';
+  const box = (cls, colour, start, end, title, meta) => {
+    const top = y(start), bot = y(end);
+    const mins = (D(end) - D(start)) / 60000;
+    const past = D(end) < anchor;
+    return `<div class="${cls}${mins >= 35 ? '' : ' short'}${past && cls === 'ev' ? ' past' : ''}"
+      style="--c:${colour};top:${top}%;height:${Math.max(bot - top, 0.1)}%">
+      <b>${esc(title)}</b><span class="meta">${meta}</span></div>`;
+  };
+
+  for (const e of w.events) {
+    const end = e.end || new Date(D(e.start).getTime() + 30*60000).toISOString();
+    h += box('ev', e.color, e.start, end, e.title,
+             `${hhmm(D(e.start))}${e.location ? ' · ' + esc(e.location) : ''}`);
+  }
+  for (const c of w.completed) {
+    h += box(c.on_plan ? 'cmp' : 'cmp offplan', c.color, c.start, c.end, c.title,
+             `${hm(c.minutes)} · ${esc(c.class_code || '')}${c.on_plan ? '' : ' · off plan'}`);
+  }
+  const nowMs = anchor.getTime();
+  for (const b of w.blocks) {
+    if (D(b.end) < topTime) continue;
+    const live = D(b.start) <= nowMs && nowMs < D(b.end);
+    h += box(live ? 'blk live' : 'blk', b.color, b.start, b.end, b.title,
+             `${hm(b.minutes)}${b.partial ? ' · part' : ''} · ${esc(b.class_code || '')}`);
+  }
+  h += '</div>';
+  tape.innerHTML = h;
+  slide();
+}
+
+/* Slide the tape so `anchor + elapsed` lands exactly on the now-line.
+   translateY(%) is relative to the element's own height, which is the tape —
+   so this stays correct at any container size. */
+function slide() {
+  if (!anchor) return;
+  const totalMin = SPAN + PAD * 2;
+  const elapsed = (Date.now() - anchor.getTime()) / 60000;
+  $('tape').style.transform =
+    `translateY(${-((PAD + elapsed) / totalMin * 100)}%)`;
+}
+
+/* ------------------------------ now strip ----------------------------- */
+function renderNow(n, w) {
+  const el = $('nowstrip');
+  const blocks = w.blocks || [];
+  const now = Date.now();
+  const live = blocks.find(b => D(b.start) <= now && now < D(b.end));
+  const next = blocks.find(b => D(b.start) > now);
+
+  if (!n.step) {
+    document.documentElement.style.setProperty('--accent', '#6B7FD7');
+    el.innerHTML = `<div class="lbl">Now</div>
+      <div class="txt">Nothing due. You're clear.</div><div class="sub">&nbsp;</div>`;
+    return;
+  }
+  const b = live || next;
+  document.documentElement.style.setProperty('--accent',
+    (b && b.color) || n.step.color || '#6B7FD7');
+
+  const title = live ? live.title : (next ? next.title : n.step.title);
+  const sub = live ? `until ${hhmm(D(live.end))} · ${esc(live.assignment)}`
+            : next ? `starts ${hhmm(D(next.start))} · ${esc(next.assignment)}`
+                   : `${hm(n.step.minutes)} · ${esc(n.step.assignment)}`;
+  el.innerHTML = `<div class="lbl">${live ? 'Now' : 'Up next'}</div>
+    <div class="txt">${esc(title)}</div><div class="sub">${sub}</div>`;
+}
+
+/* -------------------------------- week -------------------------------- */
+function renderWeek(week) {
+  const today = localDate(new Date());
+  let count = 0;
+  $('week').innerHTML = week.map(d => {
+    const dt = new Date(d.date + 'T12:00');
+    const isToday = d.date === today;
+    count += d.items.length;
+    const label = isToday ? 'Today'
+      : dt.toLocaleDateString([], {weekday:'short', day:'numeric'});
+    const body = d.items.length
+      ? d.items.map(a => {
+          const p = a.total_n ? Math.round(a.done_n / a.total_n * 100) : 0;
+          return `<div class="as">
+            <span class="dot" style="--c:${a.color}"></span>
+            <span class="an">${esc(a.title)}</span>
+            <span class="ac">${esc(a.class_code || '')}${
+              a.left_min ? ' · ' + hm(a.left_min) : ''}</span>
+            <span class="prog"><i style="--c:${a.color};width:${p}%"></i></span>
+          </div>`;
+        }).join('')
+      : '<span class="none">—</span>';
+    const load = d.planned_minutes
+      ? `<span class="load">${hm(d.planned_minutes)} planned</span>` : '';
+    return `<div class="day${isToday ? ' today' : ''}">
+      <div class="dl">${label}${load}</div><div class="di">${body}</div></div>`;
+  }).join('');
+  $('wkcount').textContent = count ? `${count} due` : 'clear';
+}
+
+/* ------------------------------- refresh ------------------------------ */
+async function refresh() {
+  const [n, w, week, st] = await Promise.all([
+    fetch('/api/now').then(r => r.json()),
+    fetch(`/api/window?back=${BACK}&fwd=${FWD}`).then(r => r.json()),
+    fetch('/api/week?days=7').then(r => r.json()),
+    fetch('/api/settings').then(r => r.json()).catch(() => settings),
+  ]);
+  settings = st || settings;
+  applyLayout();
+  renderTape(w);
+  renderNow(n, w);
+  renderWeek(week);
+
+  $('dayfree').textContent =
+    `${hm(w.planned_minutes)} planned · ${hm(w.free_minutes)} free`;
+  const warn = $('dwarn');
+  const stuck = w.unplaceable || [];
+  const blocked = stuck.filter(u => u.reason !== 'waiting_on_material');
+  const gated = stuck.filter(u => u.reason === 'waiting_on_material');
+  if (blocked.length) {
+    warn.hidden = false; warn.className = 'warnrow bad';
+    const u = blocked[0];
+    warn.textContent = blocked.length === 1
+      ? (u.reason === 'gated_past_due'
+          ? `${esc(u.assignment)}: material isn't taught until after it's due`
+          : `${esc(u.assignment)}: ${hm(u.minutes)} won't fit before it's due`)
+      : `${blocked.length} assignments can't be finished in time`;
+  } else if (gated.length) {
+    warn.hidden = false; warn.className = 'warnrow';
+    const nb = gated[0].not_before ? new Date(gated[0].not_before) : null;
+    warn.textContent = `${esc(gated[0].assignment)} waits for material${
+      nb ? ' · ' + nb.toLocaleDateString([], {weekday:'short'}) : ''}`;
+  } else if (w.total_work_minutes === 0) {
+    warn.hidden = false; warn.className = 'warnrow';
+    warn.textContent = 'Nothing outstanding';
+  } else {
+    warn.hidden = true;
+  }
+
+  $('load').textContent = n.planning ? 'planning…' : '';
+  lastGood = Date.now();
+  $('date').classList.remove('stale');
+}
+
+/* Hourly luminance wash — layer 3 of the burn-in mitigation. */
+function washNow() {
+  const el = $('wash');
+  el.classList.remove('run');
+  void el.offsetWidth;          // force reflow so the animation restarts
+  el.classList.add('run');
+}
+
+applyLayout(); tick();
+setInterval(tick, 1000);
+setInterval(slide, 250);            // smooth scroll of the tape
+setInterval(washNow, 3600000);      // once an hour
+addEventListener('resize', () => {
+  // Re-lay-out rather than only re-sliding: entering fullscreen changes the
+  // hour spacing, and a stale layout puts the now-line on the wrong hour.
+  if (lastWindow) renderTape(lastWindow); else slide();
+});
+
+(function loop() {
+  setTimeout(async () => {
+    try {
+      await refresh();
+    } catch (e) {
+      console.error(e);
+      if (Date.now() - lastGood > 180000) {
+        $('date').classList.add('stale');
+        $('date').textContent = 'NO CONNECTION';
+      }
+    }
+    loop();
+  }, lastGood ? 20000 : 2000);
+})();
+</script>
+</body>
+</html>
