@@ -47,9 +47,6 @@ small enough to start, with nothing to choose.
 - **Portfolio awareness.** Decomposition sees your other assignments, work
   already completed for that course, competing deadlines, and how your real pace
   compares to past estimates.
-- **Free readings lookup.** Finds legally free copies of course texts through
-  open-access repositories, OER libraries, and lending archives — via a vetted
-  allowlist, enforced on both the search and the results.
 - **Cost tracking.** Every API call is priced locally from its own usage block.
 
 ---
@@ -97,7 +94,7 @@ app/
 ├── db.py                connection, schema, migrations
 ├── models.py            request/response schemas
 ├── routers/             HTTP layer, one module per resource
-│   ├── classes.py       classes, documents, materials
+│   ├── classes.py       classes and uploaded documents
 │   ├── assignments.py   CRUD, PDF upload, context
 │   ├── subtasks.py      step lifecycle
 │   ├── events.py        events and weekly recurrence
@@ -107,7 +104,6 @@ app/
 │   ├── ranking.py       pick_now, pressure, agenda
 │   ├── scheduling.py    horizon planner, free windows
 │   ├── context.py       portfolio context, calibration
-│   ├── materials.py     open-access lookup
 │   └── worker.py        background job loop
 └── ai/                  Claude API
     ├── client.py        client, pricing, JSON parsing
@@ -189,8 +185,6 @@ Everything is tunable from **Settings** in the app, or the API:
   couple of weeks of real completions first.
 - **Syllabus gating is only as good as the syllabus.** No dated outline means no
   gates — the feature degrades to absent rather than to wrong.
-- **Free-reading lookup rarely finds current commercial textbooks.** That's the
-  honest answer. Your library is usually the real one.
 
 ---
 

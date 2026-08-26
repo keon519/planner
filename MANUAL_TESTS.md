@@ -207,33 +207,3 @@ same way a paper planner does.
 python3 seed_demo.py --clear
 ```
 
----
-
-## L. Free reading copies
-
-Requires a syllabus with a named reading list, and `CONTACT_EMAIL` in `.env`.
-
-- [ ] **L1** Settings → a class → **Free copies of readings** section appears
-- [ ] **L2** Without a syllabus it says so rather than showing an empty list
-- [ ] **L3** Upload a syllabus, wait ~15s, then tap **Search again**
-- [ ] **L4** Readings from the syllabus are listed by title and author
-- [ ] **L5** Every returned link is one of: openstax, libretexts, open.umn.edu,
-      gutenberg, openlibrary, archive.org, hathitrust, arxiv, core.ac.uk, doaj,
-      pmc, zenodo, ocw.mit.edu, doabooks, pressbooks, standardebooks,
-      oercommons, semanticscholar, biorxiv, medrxiv, ssrn
-- [ ] **L6** **Open three links. Each actually loads a free copy** — not a
-      paywall, not a search page, not a "buy" listing
-- [ ] **L7** Current commercial textbooks mostly show "No free copy found".
-      That is the correct answer, not a failure
-- [ ] **L8** Anything labelled *Similar open text* is honestly described in its
-      note as a substitute, not the assigned book
-- [ ] **L9** Anything labelled *Borrow* mentions the account or waitlist
-- [ ] **L10** Journal articles with a DOI resolve via OpenAlex or Unpaywall and
-      land on a real PDF
-
-Spot-check what was stored:
-
-```bash
-sqlite3 ~/planner/data/planner.db \
-  "SELECT reference, item_kind, url FROM materials LIMIT 20;"
-```

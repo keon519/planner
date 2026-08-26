@@ -164,24 +164,6 @@ def test_free_windows_invert_busy_intervals():
     assert got[1][0] == base + timedelta(hours=3, minutes=10)
 
 
-# ---------------------------------------------------------------- materials
-
-def test_allowlist_rejects_off_list_domains():
-    from app.services.materials import ALLOWED_DOMAINS
-    ok = "https://chem.libretexts.org/Bookshelves/x"
-    bad = "https://openstax.org.evil.example/x"
-
-    def allowed(url):
-        host = url.split("/")[2].lower()
-        return any(host == d or host.endswith("." + d) for d in ALLOWED_DOMAINS)
-
-    assert allowed(ok) and not allowed(bad)
-
-
-def test_doi_extracted_from_messy_citation():
-    from app.services.materials import DOI_RE
-    s = "Smith et al. 2019, https://doi.org/10.1038/s41586-019-1666-5 (accessed)"
-    assert DOI_RE.search(s).group(0) == "10.1038/s41586-019-1666-5"
 
 
 # -------------------------------------------------------------- calibration

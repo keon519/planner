@@ -85,10 +85,6 @@ Return ONLY a JSON object, no prose, no code fences:
 how the course is assessed, format/citation expectations",
   "schedule": [
     {"date": "YYYY-MM-DD", "topics": "what is taught/covered that day or week"}
-  ],
-  "readings": [
-    {"title": "...", "author": "...", "type": "book" | "article" | "chapter",
-     "doi": "..." or null, "isbn": "..." or null, "required": true | false}
   ]
 }
 
@@ -98,9 +94,4 @@ Rules for "schedule":
 - If the syllabus gives weeks rather than dates ("Week 3: chapters 5-6"), and
   term start dates are stated or inferable, convert to the Monday of that week.
   If no anchor exists, omit those entries rather than guessing.
-- Use the year that makes dates fall within the course term.
-
-Rules for "readings":
-- List required and recommended texts the syllabus names: textbooks, novels,
-  articles, chapters. Include a DOI or ISBN only if the document states one.
-- Do not invent identifiers. Omit the field rather than guessing."""
+- Use the year that makes dates fall within the course term."""

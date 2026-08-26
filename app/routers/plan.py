@@ -38,6 +38,14 @@ def get_window(back: int = 240, fwd: int = 300,
                                 max(60, min(fwd, 720)), db.get_settings(conn))
 
 
+@router.get("/calendar")
+def get_calendar(start: str, days: int = 42,
+                 conn: sqlite3.Connection = Depends(db.get_db)):
+    """Calendar grid data: due dates, events and planned study, day by day."""
+    return scheduling.calendar_view(conn, start, max(1, min(days, 62)),
+                                    db.get_settings(conn))
+
+
 @router.get("/week")
 def get_week(days: int = 7, conn: sqlite3.Connection = Depends(db.get_db)):
     """Assignment due dates for the week ahead, plus planned load per day."""

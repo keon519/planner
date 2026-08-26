@@ -14,7 +14,6 @@ CREATE TABLE IF NOT EXISTS classes (
     color       TEXT DEFAULT '#6b7fd7',
     context     TEXT,
     topic_schedule TEXT,
-    readings    TEXT,
     created_at  TEXT NOT NULL
 );
 
@@ -78,18 +77,6 @@ CREATE TABLE IF NOT EXISTS jobs (
     updated_at TEXT NOT NULL
 );
 
-CREATE TABLE IF NOT EXISTS materials (
-    id         INTEGER PRIMARY KEY,
-    class_id   INTEGER NOT NULL REFERENCES classes(id) ON DELETE CASCADE,
-    reference  TEXT NOT NULL,      -- the reading as the syllabus names it
-    item_kind  TEXT,               -- oer | public_domain | lending | alternative | article
-    title      TEXT,
-    url        TEXT,
-    source     TEXT,
-    note       TEXT,
-    found_at   TEXT NOT NULL
-);
-
 CREATE TABLE IF NOT EXISTS usage_log (
     id             INTEGER PRIMARY KEY,
     at             TEXT NOT NULL,
@@ -113,7 +100,6 @@ CREATE INDEX IF NOT EXISTS idx_assign_due   ON assignments(due_at);
 CREATE INDEX IF NOT EXISTS idx_events_start ON events(start_at);
 CREATE INDEX IF NOT EXISTS idx_jobs_status  ON jobs(status, created_at);
 CREATE INDEX IF NOT EXISTS idx_usage_at     ON usage_log(at);
-CREATE INDEX IF NOT EXISTS idx_materials_cl ON materials(class_id);
 """
 
 
@@ -150,7 +136,6 @@ MIGRATIONS = [
     ("subtasks", "planned_start",  "TEXT"),   # slot it held when completed
     ("subtasks", "planned_end",    "TEXT"),
     ("classes",  "topic_schedule", "TEXT"),   # JSON: [{date, topics}] from syllabus
-    ("classes",  "readings",       "TEXT"),   # JSON: [{title, author, type, doi, isbn}]
 ]
 
 

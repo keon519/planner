@@ -1,5 +1,4 @@
-"""Courses, their uploaded documents, and free-reading lookup."""
-import json
+"""Courses and their uploaded documents."""
 import sqlite3
 import uuid
 from pathlib import Path
@@ -8,7 +7,6 @@ from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 
 from .. import db
 from ..models import ClassIn, ClassPatch
-from ..services import materials as mat
 
 router = APIRouter(prefix="/api", tags=["classes"])
 
@@ -85,34 +83,3 @@ def delete_class_doc(cid: int, doc_id: int,
     conn.execute("DELETE FROM class_documents WHERE id = ? AND class_id = ?",
                  (doc_id, cid))
     conn.commit()
-
-
-@router.get("/classes/{cid}/materials")
-def get_materials(cid: int, conn: sqlite3.Connection = Depends(db.get_db)):
-    """Legally free copies found for this class's readings."""
-    rows = conn.execute(
-        "SELECT * FROM materials WHERE class_id = ? ORDER BY reference, id", (cid,))
-    grouped: dict = {}
-    for r in rows:
-        grouped.setdefault(r["reference"], []).append(dict(r))
-    row = conn.execute("SELECT readings FROM classes WHERE id=?", (cid,)).fetchone()
-    reads = []
-    if row and row["readings"]:
-        try:
-            reads = json.loads(row["readings"])
-        except (ValueError, TypeError):
-            reads = []
-    return {
-        "readings": reads,
-        "found": grouped,
-        "searched": len(grouped),
-        "with_results": sum(1 for v in grouped.values() if v),
-    }
-
-
-@router.post("/classes/{cid}/materials/search", status_code=202)
-def search_materials(cid: int, conn: sqlite3.Connection = Depends(db.get_db)):
-    if not conn.execute("SELECT 1 FROM classes WHERE id=?", (cid,)).fetchone():
-        raise HTTPException(404, "class not found")
-    db.enqueue(conn, "find_materials", cid)
-    return {"queued": True}

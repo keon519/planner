@@ -9,7 +9,7 @@ import logging
 from datetime import datetime, timezone
 
 from .. import ai, db
-from . import context, materials
+from . import context
 
 log = logging.getLogger("worker")
 
@@ -131,53 +131,19 @@ def _do_summarize(conn, doc_id: int, sink=None) -> None:
         return
     out = ai.summarize_class_doc(d["stored_path"], usage_sink=sink)
     summary, sched = out.get("summary", ""), out.get("schedule", [])
-    reads = out.get("readings", [])
     prev = conn.execute("SELECT context FROM classes WHERE id=?",
                         (d["class_id"],)).fetchone()["context"]
     merged = f"{prev}\n\n{summary}".strip() if prev else summary
-    conn.execute("""UPDATE classes SET context=?, topic_schedule=?, readings=?
-                     WHERE id=?""",
+    conn.execute("UPDATE classes SET context=?, topic_schedule=? WHERE id=?",
                  (merged[:4000], json.dumps(sched) if sched else None,
-                  json.dumps(reads) if reads else None, d["class_id"]))
+                  d["class_id"]))
     conn.commit()
-    if reads:
-        db.enqueue(conn, "find_materials", d["class_id"])
-
-
-def _do_find_materials(conn, class_id: int, sink=None) -> None:
-    """Look for legally free copies of each reading the syllabus names."""
-    row = conn.execute("SELECT readings FROM classes WHERE id=?",
-                       (class_id,)).fetchone()
-    if not row or not row["readings"]:
-        return
-    try:
-        reads = json.loads(row["readings"])
-    except (ValueError, TypeError):
-        return
-
-    for r in reads[:20]:
-        ref = r.get("title", "").strip()
-        if not ref:
-            continue
-        try:
-            if r.get("type") == "article" or r.get("doi"):
-                hit = materials.find_article(ref, r.get("doi"))
-                materials.save(conn, class_id, "article", ref, [hit] if hit else [])
-            else:
-                found, resp = materials.find_book(ref, r.get("author"), r.get("isbn"))
-                ai._record(sink, "find_materials", resp)
-                materials.save(conn, class_id, "oer", ref, found)
-        except Exception:
-            log.exception("material lookup failed for %r", ref)
-        if sink is not None:
-            _log_usage(conn, sink, ok=True)
 
 
 HANDLERS = {
-    "extract":        _do_extract,
-    "decompose":      _do_decompose,
-    "summarize":      _do_summarize,
-    "find_materials": _do_find_materials,
+    "extract":   _do_extract,
+    "decompose": _do_decompose,
+    "summarize": _do_summarize,
 }
 
 

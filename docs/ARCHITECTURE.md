@@ -55,13 +55,6 @@ In `app/ai/prompts.py`:
   passages about identity", not "study chapter 4" — you can't tell when the
   second one is done.
 
-## Allowlist, not blocklist
-
-`services/materials.py` restricts searching to vetted open-access, OER, and
-lending domains, and re-checks every returned URL against the same list. A
-blocklist needs updating as new mirrors appear; an allowlist can only ever
-return sources vetted going in.
-
 ## Timezones
 
 Everything is stored UTC and converted at the edges — the browser for display,

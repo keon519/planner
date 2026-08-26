@@ -110,9 +110,6 @@ def summarize_class_doc(path: str, usage_sink=None) -> dict:
         return {"summary": str(out)[:700], "schedule": []}
     out.setdefault("summary", "")
     out.setdefault("schedule", [])
-    out.setdefault("readings", [])
-    out["readings"] = [r for r in out["readings"]
-                       if isinstance(r, dict) and r.get("title")][:40]
     out["schedule"] = [e for e in out["schedule"]
                        if isinstance(e, dict) and e.get("date") and e.get("topics")][:60]
     return out

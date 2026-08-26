@@ -50,13 +50,13 @@
 
   nav {
     position: fixed; bottom: 0; left: 0; right: 0; z-index: 30;
-    display: grid; grid-template-columns: repeat(4, 1fr);
+    display: grid; grid-template-columns: repeat(5, 1fr);
     background: var(--ground); border-top: 1px solid var(--line);
     padding-bottom: env(safe-area-inset-bottom);
   }
   nav button {
     background:none; border:none; color: var(--ink-faint);
-    padding: 15px 0 17px; font-size:.78rem; font-weight:500;
+    padding: 15px 0 17px; font-size:.7rem; font-weight:500;
     letter-spacing:.13em; text-transform:uppercase; cursor:pointer;
     font-family: inherit;
   }
@@ -231,6 +231,56 @@
     padding:14px 16px; font-size:.9rem; line-height:1.5; margin-bottom:16px;
   }
 
+  /* calendar */
+  .calbar { display:flex; align-items:center; gap:14px; margin-bottom:16px; }
+  .calbar h2 { flex:1; font-size:1.2rem; font-weight:700; }
+  .calbar button {
+    background:var(--card); border:1px solid var(--line); color:var(--ink);
+    width:42px; height:42px; border-radius:11px; font-size:1.2rem; cursor:pointer;
+  }
+  .dow {
+    display:grid; grid-template-columns:repeat(7,1fr); gap:4px; margin-bottom:6px;
+  }
+  .dow span {
+    text-align:center; font-family:'Ubuntu Mono',monospace; font-size:.64rem;
+    letter-spacing:.12em; color:var(--ink-faint);
+  }
+  .grid { display:grid; grid-template-columns:repeat(7,1fr); gap:4px; }
+  .cell {
+    aspect-ratio:1; background:var(--card); border-radius:9px; padding:5px 4px 3px;
+    display:flex; flex-direction:column; align-items:center; gap:3px;
+    cursor:pointer; border:1.5px solid transparent; min-width:0;
+  }
+  .cell.out { opacity:.32; }
+  .cell.today { border-color:var(--accent); }
+  .cell.sel { background:var(--card-hi); border-color:var(--ink-dim); }
+  .cell .n { font-size:.82rem; line-height:1; }
+  .cell.today .n { color:var(--accent); font-weight:700; }
+  .dots { display:flex; gap:2px; flex-wrap:wrap; justify-content:center; min-height:5px; }
+  .dots i { width:5px; height:5px; border-radius:50%; background:var(--c); display:block; }
+  .load {
+    width:70%; height:3px; border-radius:2px; background:var(--line);
+    margin-top:auto; overflow:hidden;
+  }
+  .load i { display:block; height:100%; background:var(--accent); }
+  .cell.beyond .load { opacity:.3; }
+
+  .dayhdr {
+    margin:22px 0 4px; font-family:'Ubuntu Mono',monospace; font-size:.74rem;
+    letter-spacing:.16em; text-transform:uppercase; color:var(--ink-faint);
+  }
+  .slot {
+    display:flex; gap:12px; padding:11px 0; border-bottom:1px solid var(--line);
+  }
+  .slot .tm {
+    font-family:'Ubuntu Mono',monospace; font-size:.76rem; color:var(--ink-faint);
+    width:5.2em; flex:none; padding-top:2px;
+  }
+  .slot .bd { flex:1; min-width:0; border-left:3px solid var(--c); padding-left:10px; }
+  .slot .bd b { font-weight:600; font-size:.95rem; display:block; }
+  .slot.ev .bd b { font-weight:400; color:var(--ink-dim); }
+  .slot.due .bd b { color:var(--c); }
+
   .empty { text-align:center; color: var(--ink-faint); padding: 56px 20px; line-height:1.6; }
   .toast {
     position:fixed; left:50%; bottom: 92px; transform:translateX(-50%) translateY(20px);
@@ -252,6 +302,7 @@
   <section class="view on" id="v-now"></section>
   <section class="view" id="v-work"></section>
   <section class="view" id="v-detail"></section>
+  <section class="view" id="v-cal"></section>
   <section class="view" id="v-add"></section>
   <section class="view" id="v-settings"></section>
   <section class="view" id="v-editclass"></section>
@@ -261,6 +312,7 @@
 <nav>
   <button class="on" data-go="now">Now</button>
   <button data-go="work">Work</button>
+  <button data-go="cal">Calendar</button>
   <button data-go="add">Add</button>
   <button data-go="settings">Settings</button>
 </nav>
@@ -280,7 +332,8 @@ const api = async (path, opts) => {
 const esc = s => (s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 
 let state = { view:'now', classes:[], detailId:null, editId:null,
-              addTab:'assignment', backTo:'work' };
+              addTab:'assignment', backTo:'work',
+              calMonth:null, calSel:null };
 
 function toast(msg) {
   $('toast').textContent = msg; $('toast').classList.add('on');
@@ -601,6 +654,99 @@ async function saveClass() {
   toast('Class saved'); state.addTab = 'assignment'; renderAdd();
 }
 
+/* ---------------- CALENDAR ---------------- */
+function monthStart(d) { return new Date(d.getFullYear(), d.getMonth(), 1); }
+function gridStart(d) {
+  const f = monthStart(d);
+  return new Date(f.getFullYear(), f.getMonth(), 1 - f.getDay());
+}
+
+async function renderCal() {
+  const cur = state.calMonth || monthStart(new Date());
+  state.calMonth = cur;
+  const from = gridStart(cur);
+  const data = await api(`/api/calendar?start=${localDate(from)}&days=42`);
+  const byDate = Object.fromEntries(data.days.map(d => [d.date, d]));
+  const maxLoad = Math.max(...data.days.map(d => d.planned_minutes), 1);
+
+  state.calSel = state.calSel || data.today;
+
+  const cells = data.days.map(d => {
+    const dt = new Date(d.date + 'T12:00');
+    const colours = [...new Set([...d.due.map(x => x.color),
+                                 ...d.events.map(x => x.color)])].slice(0, 4);
+    return `<div class="cell${dt.getMonth() !== cur.getMonth() ? ' out' : ''}${
+        d.date === data.today ? ' today' : ''}${d.date === state.calSel ? ' sel' : ''}${
+        d.beyond_horizon ? ' beyond' : ''}"
+        onclick="state.calSel='${d.date}';renderCal()">
+      <span class="n">${dt.getDate()}</span>
+      <span class="dots">${colours.map(c => `<i style="--c:${c}"></i>`).join('')}</span>
+      <span class="load"><i style="width:${
+        Math.round(d.planned_minutes / maxLoad * 100)}%"></i></span>
+    </div>`;
+  }).join('');
+
+  $('v-cal').innerHTML = `
+    <div class="calbar">
+      <button onclick="shiftMonth(-1)">‹</button>
+      <h2>${cur.toLocaleDateString([], {month:'long', year:'numeric'})}</h2>
+      <button onclick="shiftMonth(1)">›</button>
+    </div>
+    <div class="dow">${['S','M','T','W','T','F','S'].map(d =>
+      `<span>${d}</span>`).join('')}</div>
+    <div class="grid">${cells}</div>
+    <div id="dayview"></div>`;
+
+  renderDayView(byDate[state.calSel]);
+}
+
+function shiftMonth(n) {
+  const c = state.calMonth || monthStart(new Date());
+  state.calMonth = new Date(c.getFullYear(), c.getMonth() + n, 1);
+  state.calSel = null;
+  const probe = new Date(c.getFullYear(), c.getMonth() + n, 1);
+  state.calSel = localDate(probe);
+  renderCal();
+}
+
+function renderDayView(d) {
+  if (!d) { $('dayview').innerHTML = ''; return; }
+  const dt = new Date(d.date + 'T12:00');
+  const t = iso => new Date(iso).toLocaleTimeString([],
+    {hour:'numeric', minute:'2-digit'});
+
+  const rows = [
+    ...d.due.map(a => ({sort:'0', tm:'Due', cls:'due', c:a.color,
+      title:a.title, sub:`${a.class_code || ''}${a.total_n ?
+        ` · ${a.done_n}/${a.total_n} steps` : ''}${a.kind==='exam' ? ' · exam' : ''}`})),
+    ...d.events.map(e => ({sort:e.start, tm:t(e.start), cls:'ev', c:e.color,
+      title:e.title, sub:e.location || ''})),
+    ...d.blocks.map(b => ({sort:b.start, tm:t(b.start), cls:'blk', c:b.color,
+      title:b.title, sub:`${hmMin(b.minutes)} · ${b.assignment}`})),
+  ].sort((a, b) => a.sort < b.sort ? -1 : 1);
+
+  $('dayview').innerHTML = `
+    <div class="dayhdr">${dt.toLocaleDateString([],
+      {weekday:'long', day:'numeric', month:'long'})}${
+      d.planned_minutes ? ` · ${hmMin(d.planned_minutes)} planned` : ''}</div>
+    ${rows.length ? rows.map(r => `
+      <div class="slot ${r.cls}">
+        <span class="tm">${r.tm}</span>
+        <span class="bd" style="--c:${r.c}"><b>${esc(r.title)}</b>
+          ${r.sub ? `<span class="item-sub">${esc(r.sub)}</span>` : ''}</span>
+      </div>`).join('')
+    : `<div class="hint" style="padding:18px 0">${d.beyond_horizon
+        ? 'Beyond the planning horizon — nothing scheduled here yet.'
+        : 'Nothing on this day.'}</div>`}`;
+}
+
+function hmMin(m) {
+  m = Math.round(m);
+  if (m < 60) return m + ' min';
+  const h = Math.floor(m/60), r = m % 60;
+  return r ? `${h}h ${r}m` : `${h}h`;
+}
+
 /* ---------------- SETTINGS ---------------- */
 async function renderSettings() {
   const [classes, assigns, series, cfg] = await Promise.all([
@@ -781,62 +927,10 @@ async function renderEditClass() {
           esc(e.date)}</span><span style="flex:1">${esc(e.topics)}</span></div>`).join('') : ''}
     </div>
 
-    <div class="sect" style="margin-top:26px">
-      <h3>Free copies of readings</h3>
-      <div id="mats"><div class="hint">Loading…</div></div>
-    </div>
-
     <div class="warnbox" style="margin-top:26px">Deleting this class keeps its
       ${c.assignment_count} assignment${c.assignment_count===1?'':'s'} but unlinks them.</div>
     <button class="btn danger" onclick="delClass(${c.id})">Delete class</button>`;
 
-  renderMaterials(c.id);
-}
-
-const KINDLABEL = {oer:'Open textbook', public_domain:'Public domain',
-                   lending:'Borrow', alternative:'Similar open text', article:'Open access'};
-
-async function renderMaterials(cid) {
-  let m;
-  try { m = await api(`/api/classes/${cid}/materials`); } catch { return; }
-  if (!m.readings.length) {
-    $('mats').innerHTML = `<div class="hint">Upload a syllabus first — the reading
-      list is pulled from it.</div>`;
-    return;
-  }
-  const rows = m.readings.map(r => {
-    const hits = m.found[r.title] || [];
-    return `<div style="padding:12px 0;border-bottom:1px solid var(--line)">
-      <div style="font-weight:600;font-size:.95rem">${esc(r.title)}</div>
-      <div class="item-sub">${esc(r.author || '')}${r.type ? ' · ' + esc(r.type) : ''}</div>
-      ${hits.length ? hits.map(h => `
-        <div style="margin-top:8px;padding-left:10px;border-left:2px solid var(--ok)">
-          <a href="${esc(h.url)}" target="_blank" rel="noopener"
-             style="color:var(--accent);font-size:.9rem">${esc(h.title || h.url)}</a>
-          <div class="mini" style="margin-top:3px">${esc(KINDLABEL[h.item_kind] || h.item_kind)}${
-            h.source ? ' · ' + esc(h.source) : ''}</div>
-          ${h.note ? `<div class="hint" style="margin-top:3px">${esc(h.note)}</div>` : ''}
-        </div>`).join('')
-      : '<div class="mini" style="margin-top:6px">No free copy found</div>'}
-    </div>`;
-  }).join('');
-
-  $('mats').innerHTML = `
-    <div class="hint" style="margin-bottom:12px">${m.with_results} of ${
-      m.readings.length} readings have a legally free copy.</div>
-    ${rows}
-    <button class="btn ghost" style="margin-top:14px" onclick="searchMats(${cid})">
-      Search again</button>
-    <div class="hint" style="margin-top:10px">Searches open textbooks, public-domain
-      archives, lending libraries, and open-access repositories only. For a current
-      commercial textbook, your library's course reserves or an ebook licence is
-      usually the real answer.</div>`;
-}
-
-async function searchMats(cid) {
-  await api(`/api/classes/${cid}/materials/search`, {method:'POST'});
-  toast('Searching…');
-  setTimeout(() => renderMaterials(cid), 12000);
 }
 
 async function saveClass2() {
@@ -927,7 +1021,7 @@ async function delEvent(id) {
 }
 
 /* ---------------- router ---------------- */
-const TITLES = {now:'Now', work:'Work', detail:'Assignment', add:'Add',
+const TITLES = {now:'Now', work:'Work', detail:'Assignment', add:'Add', cal:'Calendar',
                 settings:'Settings', editclass:'Edit class', editassign:'Edit assignment'};
 async function go(view) {
   if (state.view === 'detail' && view !== 'detail') stopPoll();
@@ -944,6 +1038,7 @@ async function go(view) {
     if (view === 'work')   await renderWork();
     if (view === 'detail') await renderDetail();
     if (view === 'add')    renderAdd();
+    if (view === 'cal')    await renderCal();
     if (view === 'settings')   await renderSettings();
     if (view === 'editclass')  await renderEditClass();
     if (view === 'editassign') await renderEditAssign();

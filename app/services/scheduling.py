@@ -503,6 +503,83 @@ def window_view(conn: sqlite3.Connection, back_min: int = 240,
     }
 
 
+# --------------------------------------------------------- calendar view
+
+def calendar_view(conn: sqlite3.Connection, start_date: str, days: int = 42,
+                  settings: dict | None = None,
+                  now: datetime | None = None) -> dict:
+    """Per-day view for the calendar: what's due, what's on, what's planned.
+
+    Study blocks only exist inside the planning horizon, so days past it carry
+    deadlines and events but no blocks. That's reported rather than hidden —
+    an empty day beyond the horizon means "not planned yet", not "nothing to do".
+    """
+    from datetime import date as _date
+
+    now = now or datetime.now(timezone.utc)
+    tz = now.astimezone().tzinfo
+    first = _date.fromisoformat(start_date)
+    last = first + timedelta(days=days - 1)
+
+    win_start = datetime.combine(first, datetime.min.time(), tzinfo=tz)
+    win_end = datetime.combine(last, datetime.max.time(), tzinfo=tz)
+
+    horizon = plan_horizon(conn, settings=settings, now=now)
+    blocks_by_day: dict[str, list] = {}
+    for d in horizon["days"]:
+        if d["blocks"]:
+            blocks_by_day[d["date"]] = d["blocks"]
+    horizon_last = horizon["days"][-1]["date"] if horizon["days"] else None
+
+    from .ranking import expand_events
+    events_by_day: dict[str, list] = {}
+    for e in expand_events(conn, win_start.isoformat(), win_end.isoformat()):
+        key = _aware(e["occurrence_start"]).astimezone(tz).date().isoformat()
+        events_by_day.setdefault(key, []).append({
+            "title": e["title"],
+            "start": e["occurrence_start"],
+            "end": e.get("occurrence_end") or e["end_at"],
+            "location": e["location"],
+            "class_code": e["class_code"],
+            "color": e["color"] or "#565C6E",
+        })
+
+    due_by_day: dict[str, list] = {}
+    for r in conn.execute("""
+            SELECT a.id, a.title, a.kind, a.due_at, a.status,
+                   c.code AS class_code, c.color,
+                   (SELECT COUNT(*) FROM subtasks WHERE assignment_id=a.id) AS total_n,
+                   (SELECT COUNT(*) FROM subtasks
+                     WHERE assignment_id=a.id AND status!='todo')            AS done_n,
+                   (SELECT COALESCE(SUM(est_minutes),0) FROM subtasks
+                     WHERE assignment_id=a.id AND status='todo')             AS left_min
+              FROM assignments a LEFT JOIN classes c ON c.id = a.class_id
+             WHERE a.due_at IS NOT NULL AND a.due_at >= ? AND a.due_at <= ?
+             ORDER BY a.due_at""",
+            (win_start.astimezone(timezone.utc).isoformat(),
+             win_end.astimezone(timezone.utc).isoformat())):
+        key = _aware(r["due_at"]).astimezone(tz).date().isoformat()
+        due_by_day.setdefault(key, []).append({**dict(r),
+                                               "color": r["color"] or "#6B7FD7"})
+
+    out = []
+    for i in range(days):
+        d = (first + timedelta(days=i)).isoformat()
+        blocks = blocks_by_day.get(d, [])
+        out.append({
+            "date": d,
+            "due": due_by_day.get(d, []),
+            "events": events_by_day.get(d, []),
+            "blocks": blocks,
+            "planned_minutes": sum(b["minutes"] for b in blocks),
+            "beyond_horizon": bool(horizon_last and d > horizon_last),
+        })
+
+    return {"days": out, "start": first.isoformat(), "end": last.isoformat(),
+            "horizon_end": horizon_last,
+            "today": now.astimezone(tz).date().isoformat()}
+
+
 # ------------------------------------------------------------- week ahead
 
 def week_ahead(conn: sqlite3.Connection, days: int = 7) -> list[dict]:
