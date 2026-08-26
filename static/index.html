@@ -354,6 +354,10 @@ function dueText(iso) {
 }
 function hm(m) { return m < 60 ? `${m} min` : `${(m/60) % 1 === 0 ? m/60 : (m/60).toFixed(1)} h`; }
 function toUTC(localValue) { return localValue ? new Date(localValue).toISOString() : null; }
+function localDate(d) {
+  const p = n => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+}
 function toLocalInput(iso) {
   if (!iso) return '';
   const d = new Date(iso), p = n => String(n).padStart(2,'0');
@@ -1043,8 +1047,15 @@ async function go(view) {
     if (view === 'editclass')  await renderEditClass();
     if (view === 'editassign') await renderEditAssign();
   } catch (e) {
-    $('v-' + view).innerHTML = `<div class="empty">Couldn't reach the server.<br>
-      <span class="mono" style="font-size:.8rem">${esc(String(e.message).slice(0,120))}</span></div>`;
+    // A thrown ReferenceError/TypeError is a bug in this page, not a network
+    // problem — saying "couldn't reach the server" sends you debugging the
+    // wrong thing entirely.
+    const network = e instanceof TypeError && /fetch|network/i.test(e.message);
+    console.error(view, e);
+    $('v-' + view).innerHTML = `<div class="empty">${
+      network ? "Couldn't reach the server." : 'Something broke on this screen.'}<br>
+      <span class="mono" style="font-size:.8rem">${
+        esc(String(e.message).slice(0, 140))}</span></div>`;
   }
 }
 
